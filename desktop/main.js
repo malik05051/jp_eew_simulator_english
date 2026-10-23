@@ -15,6 +15,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      autoplayPolicy: 'no-user-gesture-required', // alerts must sound even without a recent click
+      backgroundThrottling: true, // let Chromium slow timers when the window is hidden
     },
   });
   Menu.setApplicationMenu(null);

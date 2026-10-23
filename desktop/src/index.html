@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src blob:; child-src blob:; connect-src 'self' file: data: blob:">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src blob:; child-src blob:; connect-src 'self' file: data: blob:">
   <title>Quake Simulator</title>
   <link rel="stylesheet" href="../node_modules/maplibre-gl/dist/maplibre-gl.css">
   <link rel="stylesheet" href="style.css">
@@ -11,52 +11,52 @@
 <body>
   <div id="app">
     <aside id="sidebar">
-      <div id="brand">
-        <span class="brand-dot"></span>
-        <span>Quake Simulator</span>
-        <span id="status-pill" class="pill">Idle</span>
-      </div>
       <div id="cards"></div>
-      <div class="section-title">Earthquake history <button id="clear-history" class="link-btn" title="Clear history">Clear</button></div>
-      <div id="history"></div>
-      <div id="credits">Map data: Japan Meteorological Agency, Natural Earth</div>
+      <div id="history-wrap">
+        <div class="section-title">Earthquake history <button id="clear-history" class="link-btn" title="Clear history">Clear</button></div>
+        <div id="history"></div>
+      </div>
     </aside>
 
     <main id="stage">
       <div id="map"></div>
 
-      <div id="clock" class="glass"><span id="clock-date"></span> <span id="clock-time"></span> <span id="clock-tag">Simulated</span></div>
-
-      <nav id="layer-bar" class="glass">
-        <button data-layer="stations" class="on" title="Stations (real-time shaking)">
-          <svg viewBox="0 0 24 24"><circle cx="6" cy="8" r="2"/><circle cx="14" cy="6" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="18" cy="16" r="2"/></svg>
+      <nav id="tabs">
+        <button data-view="info" title="Earthquake information (1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>
         </button>
-        <button data-layer="waves" class="on" title="P and S waves">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9"/></svg>
+        <button data-view="realtime" class="on" title="Real-time and EEW (2)">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M2 13h4l3-8 4 15 3-9 2 2h4"/></svg>
         </button>
-        <button data-layer="areas" class="on" title="Intensity by area">
-          <svg viewBox="0 0 24 24"><path d="M3 5l6-2 6 2 6-2v16l-6 2-6-2-6 2z" opacity=".85"/></svg>
-        </button>
-        <button data-layer="tsunami" class="on" title="Tsunami bulletins">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M2 16c3 0 3-3 6-3s3 3 6 3 3-3 6-3M2 20c3 0 3-3 6-3s3 3 6 3 3-3 6-3"/></svg>
-        </button>
-        <span class="sep"></span>
-        <button id="btn-fit" title="Fit Japan">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        <button data-view="tsunami" title="Tsunami (3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3L2 20h20z"/><path d="M6 16c2 0 2-2 4-2s2 2 4 2 2-2 4-2"/></svg>
         </button>
         <button id="btn-settings" title="Settings">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
         </button>
       </nav>
 
-      <div id="legend" class="glass"></div>
+      <div id="clock"><span id="clock-date"></span> <span id="clock-time"></span> <span id="clock-tag">Simulated</span></div>
 
-      <section id="setup" class="glass panel">
+      <div id="zoom">
+        <button id="btn-labels" title="Show or hide intensity markers">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M3 3l18 18"/></svg>
+        </button>
+        <button id="btn-zin" title="Zoom in">+</button>
+        <button id="btn-zout" title="Zoom out">−</button>
+        <button id="btn-fit" title="Fit Japan">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+      </div>
+
+      <div id="legend"></div>
+
+      <section id="setup" class="panel">
         <header>
           <h2>New earthquake</h2>
           <button class="icon-btn" id="setup-close" title="Close">&times;</button>
         </header>
-        <p class="hint" id="setup-hint">Click the map to place the epicenter, or pick a preset.</p>
+        <p class="hint">Click the map to place the epicenter, or pick a preset.</p>
         <label class="field">
           <span>Preset</span>
           <select id="preset">
@@ -78,7 +78,7 @@
         <button id="start" class="primary" disabled>Start simulation</button>
       </section>
 
-      <section id="settings" class="glass panel">
+      <section id="settings" class="panel" hidden>
         <header>
           <h2>Settings</h2>
           <button class="icon-btn" id="settings-close" title="Close">&times;</button>
@@ -87,9 +87,10 @@
           <span>Volume <b id="vol-val">70%</b></span>
           <input type="range" id="volume" min="0" max="100" step="1" value="70">
         </label>
-        <label class="check"><input type="checkbox" id="speech" checked> Spoken announcements</label>
-        <label class="check"><input type="checkbox" id="autoplay-speed"> Start new quakes at 2× speed</label>
+        <label class="check"><input type="checkbox" id="speech"> Spoken announcements (English)</label>
+        <label class="check"><input type="checkbox" id="autoswitch" checked> Switch views automatically on alerts</label>
         <label class="check"><input type="checkbox" id="follow" checked> Zoom to the epicenter on start</label>
+        <label class="check"><input type="checkbox" id="lowpower"> Power saver (lower frame rate)</label>
         <div class="field">
           <span>Alert sounds</span>
           <div id="sound-slots"></div>
@@ -98,7 +99,7 @@
         <p class="hint">Simplified model for education and entertainment. Not for disaster-prevention decisions.</p>
       </section>
 
-      <div id="playback" class="glass">
+      <div id="playback">
         <button id="play" class="icon-btn big" title="Play / pause (Space)">
           <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
           <svg id="icon-pause" viewBox="0 0 24 24" hidden><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
@@ -106,13 +107,16 @@
         <button id="replay" class="icon-btn" title="Replay from the start">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
         </button>
+        <button id="reset" class="icon-btn" title="Reset: clear the current quake (R)">
+          <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
         <span id="elapsed">--:--</span>
         <input type="range" id="timeline" min="-5" max="120" step="0.1" value="-5" disabled>
         <div id="speeds">
           <button data-speed="1" class="on">1×</button>
           <button data-speed="2">2×</button>
-          <button data-speed="5">5×</button>
-          <button data-speed="10">10×</button>
+          <button data-speed="4">4×</button>
+          <button data-speed="8">8×</button>
         </div>
         <button id="new-quake" class="primary small" title="New earthquake (N)">New quake</button>
       </div>

@@ -1,11 +1,15 @@
 // App controller: loads data, runs the playback clock and renders map + sidebar from the simulation state.
 import { Simulation, VP, VS, surfaceRadius } from '../sim/engine.js';
 import { EpicenterLookup } from '../sim/epicenter.js';
-import { CLASSES, CLASS_LABEL, realtimeColor } from '../sim/intensity.js';
+import { CLASSES, CLASS_LABEL, classIndex } from '../sim/intensity.js';
 import { QuakeMap } from './map.js';
-import { eewCard, infoCard, tsunamiCard, idleCard, shakingCard, historyItem, legendHtml, fmtTime, fmtDate } from './cards.js';
 import {
-  play, say, setVolume, setSpeech, SOUND_SLOTS, loadCustomSounds, setCustomSound, clearCustomSound, customSoundName,
+  eewCard, shakingCard, infoCard, regionListCard, tsunamiCard, noTsunamiCard, idleCard, historyItem, legendHtml,
+  fmtTime, fmtDate,
+} from './cards.js';
+import {
+  play, preload, say, stopSpeech, setVolume, setSpeech, SOUND_SLOTS, loadCustomSounds, setCustomSound,
+  clearCustomSound, customSoundName,
 } from './audio.js';
 
 const PRESETS = [
@@ -22,15 +26,16 @@ const PRESETS = [
 const $ = (id) => document.getElementById(id);
 const STORE = 'quakesim.v1';
 
-const prefs = load(STORE + '.prefs', { volume: 0.7, speech: true, fast: false, follow: true });
+const prefs = load(STORE + '.prefs', {});
+const P = { volume: 0.7, speech: false, autoswitch: true, follow: true, lowpower: false, ...prefs };
 let history = load(STORE + '.history', []);
 
 const state = {
   sim: null, quake: null, data: null, map: null,
-  t: -5, playing: false, speed: 1, lastFrame: 0, lastMapUpdate: 0,
-  pending: null, // epicenter chosen in the setup panel
-  activeId: null,
-  seenEew: 0, warned: false,
+  t: -5, playing: false, speed: 1, lastFrame: 0, lastMapUpdate: 0, lastSide: 0,
+  pending: null, activeId: null, view: 'realtime', markers: true,
+  rt: null, // Float32Array of real-time intensity per station
+  warned: false, lastEewKey: '', shakeK: 0, loop: 0, tsunamiShownAt: -Infinity,
 };
 globalThis.quakeSim = state; // handy from the devtools console (F12)
 
@@ -47,20 +52,19 @@ async function init() {
   data.subByCode = new Map(subregions.features.map((f) => [f.properties.code, f]));
   data.tsuByCode = new Map(tsunami.features.map((f) => [f.properties.code, f]));
   state.data = data;
+  state.rt = new Float32Array(data.stations.length).fill(-3);
   state.sim = new Simulation(data);
   state.map = new QuakeMap($('map'), data);
   await state.map.ready;
   state.map.fitJapan();
 
-  $('legend').innerHTML = legendHtml();
   wireUi();
   applyPrefs();
   renderHistory();
-  renderCards();
-  renderClock();
-  renderMap(true);
+  setView('realtime');
+  render(true);
   openSetup();
-  requestAnimationFrame(frame);
+  idleClock();
 }
 
 // ---------------------------------------------------------------- UI wiring
@@ -79,7 +83,8 @@ function wireUi() {
   $('depth').addEventListener('input', () => { sel.value = ''; syncSetupLabels(); });
   $('start').addEventListener('click', startPending);
   $('setup-close').addEventListener('click', closeSetup);
-  $('new-quake').addEventListener('click', openSetup);
+  $('new-quake').addEventListener('click', () => { resetSim(); openSetup(); });
+  $('reset').addEventListener('click', resetSim);
 
   state.map.map.on('click', (e) => {
     if (!$('setup').hidden) {
@@ -87,6 +92,8 @@ function wireUi() {
       setPending(e.lngLat.lat, e.lngLat.lng);
     }
   });
+  // redraw markers etc. once after the user moves the map while paused
+  state.map.map.on('moveend', () => { if (!state.playing) render(true); });
 
   $('play').addEventListener('click', togglePlay);
   $('replay').addEventListener('click', () => { if (state.quake) { seek(-5); setPlaying(true); } });
@@ -94,27 +101,30 @@ function wireUi() {
   for (const b of document.querySelectorAll('#speeds button')) {
     b.addEventListener('click', () => setSpeed(parseFloat(b.dataset.speed)));
   }
-
-  for (const b of document.querySelectorAll('#layer-bar [data-layer]')) {
-    b.addEventListener('click', () => {
-      const k = b.dataset.layer;
-      state.map.layers[k] = !state.map.layers[k];
-      b.classList.toggle('on', state.map.layers[k]);
-      if (k === 'stations') state.map.map.setLayoutProperty('stations', 'visibility', state.map.layers[k] ? 'visible' : 'none');
-      if (k === 'waves') {
-        for (const id of ['wave-line', 'wave-s-fill']) state.map.map.setLayoutProperty(id, 'visibility', state.map.layers[k] ? 'visible' : 'none');
-      }
-      renderMap(true);
-    });
+  for (const b of document.querySelectorAll('#tabs [data-view]')) {
+    b.addEventListener('click', () => setView(b.dataset.view));
   }
-  $('btn-fit').addEventListener('click', () => state.map.fitJapan());
-  $('btn-settings').addEventListener('click', () => { $('settings').hidden = !$('settings').hidden; if (!$('settings').hidden) closeSetup(); });
+  $('btn-settings').addEventListener('click', () => {
+    $('settings').hidden = !$('settings').hidden;
+    if (!$('settings').hidden) closeSetup();
+  });
   $('settings-close').addEventListener('click', () => { $('settings').hidden = true; });
+  $('btn-zin').addEventListener('click', () => state.map.map.zoomIn());
+  $('btn-zout').addEventListener('click', () => state.map.map.zoomOut());
+  $('btn-fit').addEventListener('click', () => state.map.fitJapan());
+  $('btn-labels').addEventListener('click', () => {
+    state.markers = !state.markers;
+    $('btn-labels').classList.toggle('off', !state.markers);
+    for (const id of ['obs', 'stations-rt']) {
+      state.map.map.setLayoutProperty(id, 'visibility', state.markers && visibleIn(id) ? 'visible' : 'none');
+    }
+  });
 
-  $('volume').addEventListener('input', (e) => { prefs.volume = e.target.value / 100; savePrefs(); applyPrefs(); });
-  $('speech').addEventListener('change', (e) => { prefs.speech = e.target.checked; savePrefs(); applyPrefs(); });
-  $('autoplay-speed').addEventListener('change', (e) => { prefs.fast = e.target.checked; savePrefs(); });
-  $('follow').addEventListener('change', (e) => { prefs.follow = e.target.checked; savePrefs(); });
+  $('volume').addEventListener('input', (e) => { P.volume = e.target.value / 100; savePrefs(); applyPrefs(); });
+  $('speech').addEventListener('change', (e) => { P.speech = e.target.checked; savePrefs(); applyPrefs(); });
+  $('autoswitch').addEventListener('change', (e) => { P.autoswitch = e.target.checked; savePrefs(); });
+  $('follow').addEventListener('change', (e) => { P.follow = e.target.checked; savePrefs(); });
+  $('lowpower').addEventListener('change', (e) => { P.lowpower = e.target.checked; savePrefs(); });
 
   let pickingSlot = null;
   $('sound-slots').addEventListener('click', async (e) => {
@@ -141,24 +151,37 @@ function wireUi() {
   $('clear-history').addEventListener('click', () => { history = []; save(STORE + '.history', history); renderHistory(); });
 
   document.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+    if (e.target.tagName === 'SELECT' || (e.target.tagName === 'INPUT' && e.target.type !== 'range')) return;
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
-    if (e.key === 'n' || e.key === 'N') openSetup();
+    if (e.key === 'n' || e.key === 'N') { resetSim(); openSetup(); }
+    if (e.key === 'r' || e.key === 'R') resetSim();
+    if (e.key === '1') setView('info');
+    if (e.key === '2') setView('realtime');
+    if (e.key === '3') setView('tsunami');
     if (e.key === 'Escape') { closeSetup(); $('settings').hidden = true; }
     if (e.key === 'ArrowRight' && state.quake) seek(state.t + 5);
     if (e.key === 'ArrowLeft' && state.quake) seek(state.t - 5);
   });
-  $('settings').hidden = true;
+
+  // Don't draw anything while the window is hidden or minimised.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { state.lastFrame = performance.now(); render(true); }
+  });
+}
+
+function visibleIn(layer) {
+  return layer === 'obs' ? state.view === 'info' : state.view === 'realtime';
 }
 
 function applyPrefs() {
-  $('volume').value = Math.round(prefs.volume * 100);
-  $('vol-val').textContent = `${Math.round(prefs.volume * 100)}%`;
-  $('speech').checked = prefs.speech;
-  $('autoplay-speed').checked = prefs.fast;
-  $('follow').checked = prefs.follow;
-  setVolume(prefs.volume);
-  setSpeech(prefs.speech);
+  $('volume').value = Math.round(P.volume * 100);
+  $('vol-val').textContent = `${Math.round(P.volume * 100)}%`;
+  $('speech').checked = P.speech;
+  $('autoswitch').checked = P.autoswitch;
+  $('follow').checked = P.follow;
+  $('lowpower').checked = P.lowpower;
+  setVolume(P.volume);
+  setSpeech(P.speech);
 }
 
 function renderSoundSlots() {
@@ -201,6 +224,23 @@ function closeSetup() {
   else if (!state.pending) state.map.setEpicenter(null);
 }
 
+function setView(view) {
+  state.view = view;
+  for (const b of document.querySelectorAll('#tabs [data-view]')) b.classList.toggle('on', b.dataset.view === view);
+  state.map.setView(view);
+  if (!state.markers) for (const id of ['obs', 'stations-rt']) state.map.map.setLayoutProperty(id, 'visibility', 'none');
+  $('legend').innerHTML = legendHtml(view);
+  lastCardsKey = '';
+  render(true);
+}
+
+function autoView(view) {
+  if (!P.autoswitch || state.view === view) return;
+  // a new tsunami bulletin keeps the tsunami view up for a while, even if reports arrive
+  if (view !== 'tsunami' && state.t - state.tsunamiShownAt < 20) return;
+  setView(view);
+}
+
 function startPending() {
   if (!state.pending) return;
   const q = {
@@ -209,29 +249,47 @@ function startPending() {
     origin: Date.now() + 5000,
   };
   closeSetup();
+  preload();
   startQuake(q, { autoplay: true });
 }
 
 function startQuake(q, { autoplay = true, seekTo = -5 } = {}) {
-  speechSynthesis.cancel();
+  stopSpeech();
   state.quake = state.sim.start(q);
   state.pending = null;
   state.map.setEpicenter(state.quake);
-  const dur = state.sim.duration();
-  $('timeline').max = dur.toFixed(1);
+  $('timeline').max = state.sim.duration().toFixed(1);
   $('timeline').disabled = false;
-  if (prefs.follow && autoplay) state.map.flyTo(q.lat, q.lon, q.mag);
-  state.activeId = q.id ?? null;
-  if (!q.id) {
-    state.activeId = `q${state.quake.origin}`;
-    addHistory();
-  }
+  if (P.follow && autoplay) state.map.flyTo(q.lat, q.lon, q.mag);
+  if (q.id) state.activeId = q.id;
+  else { state.activeId = `q${state.quake.origin}`; addHistory(); }
   renderHistory();
-  setSpeed(autoplay && prefs.fast ? 2 : state.speed);
-  state.seenEew = 0;
-  state.warned = false;
+  if (autoplay) setView('realtime');
   seek(seekTo);
   setPlaying(autoplay);
+}
+
+// Stop playback and clear the current quake from the map and sidebar (history is kept).
+function resetSim() {
+  setPlaying(false);
+  stopSpeech();
+  state.quake = null;
+  state.activeId = null;
+  state.pending = null;
+  state.t = -5;
+  state.warned = false;
+  state.lastEewKey = '';
+  state.shakeK = 0;
+  state.tsunamiShownAt = -Infinity;
+  state.map.setEpicenter(null);
+  $('start').disabled = true;
+  $('setup-place').textContent = '—';
+  $('setup-coords').textContent = '—';
+  $('timeline').value = -5;
+  $('timeline').disabled = true;
+  lastCardsKey = '';
+  renderHistory();
+  render(true);
 }
 
 // ---------------------------------------------------------------- history
@@ -250,9 +308,8 @@ function openHistory(id) {
   if (!h) return;
   closeSetup();
   startQuake({ ...h }, { autoplay: false, seekTo: 0 });
-  state.activeId = id;
-  renderHistory();
   seek(state.sim.duration());
+  setView('info');
   state.map.flyTo(h.lat, h.lon, h.mag);
 }
 
@@ -273,9 +330,12 @@ function setPlaying(p) {
   state.playing = p;
   $('icon-play').hidden = p;
   $('icon-pause').hidden = !p;
-  state.lastFrame = performance.now();
-  if (!p) speechSynthesis.pause(); else speechSynthesis.resume();
-  renderStatus();
+  if (p) {
+    state.lastFrame = performance.now();
+    if (!state.loop) state.loop = requestAnimationFrame(frame);
+  } else {
+    stopSpeech();
+  }
 }
 
 function setSpeed(s) {
@@ -286,25 +346,33 @@ function setSpeed(s) {
 function seek(t) {
   if (!state.quake) return;
   state.t = Math.max(-5, Math.min(state.sim.duration(), t));
-  state.seenEew = state.sim.eewAt(state.t)?.serial ?? 0;
-  speechSynthesis.cancel();
+  const eew = state.sim.eewAt(state.t);
+  state.warned = !!eew?.isWarning;
+  state.lastEewKey = eew ? eewKey(eew) : '';
+  state.shakeK = state.sim.maxObservedAt(state.t) ? CLASSES.indexOf(state.sim.maxObservedAt(state.t)) : 0;
+  state.tsunamiShownAt = -Infinity;
+  stopSpeech();
   render(true);
 }
 
+// The animation loop only runs while a simulation is playing.
 function frame(now) {
-  if (state.playing && state.quake) {
-    const dt = Math.min(0.25, (now - state.lastFrame) / 1000) * state.speed;
-    const t0 = state.t;
-    const t1 = Math.min(state.sim.duration(), t0 + dt);
-    state.t = t1;
-    for (const ev of state.sim.eventsBetween(t0, t1)) announce(ev);
-    if (t1 >= state.sim.duration()) setPlaying(false);
-    render(false);
-  } else if (!state.quake) {
-    renderClock();
-  }
+  state.loop = 0;
+  if (!state.playing || !state.quake) return;
+  const dt = Math.min(0.25, (now - state.lastFrame) / 1000) * state.speed;
   state.lastFrame = now;
-  requestAnimationFrame(frame);
+  const t0 = state.t;
+  const t1 = Math.min(state.sim.duration(), t0 + dt);
+  state.t = t1;
+  for (const ev of state.sim.eventsBetween(t0, t1)) announce(ev);
+  if (t1 >= state.sim.duration()) setPlaying(false);
+  if (!document.hidden) render(false);
+  if (state.playing) state.loop = requestAnimationFrame(frame);
+}
+
+function idleClock() {
+  if (!state.quake) renderClock();
+  setTimeout(idleClock, 1000 - (Date.now() % 1000) + 5);
 }
 
 // ---------------------------------------------------------------- rendering
@@ -313,31 +381,34 @@ function clock(t) {
 }
 
 function render(force) {
-  renderClock();
-  renderCards();
-  renderMap(force);
-  renderStatus();
+  const now = performance.now();
+  const mapEvery = P.lowpower ? 250 : 100;
+  if (force || now - state.lastMapUpdate >= mapEvery) {
+    state.lastMapUpdate = now;
+    renderMap();
+  }
+  if (force || now - state.lastSide >= 250) {
+    state.lastSide = now;
+    renderClock();
+    renderCards();
+    renderTimeline();
+  }
+}
+
+function renderTimeline() {
   const tl = $('timeline');
   if (document.activeElement !== tl) tl.value = state.t.toFixed(1);
-  const s = Math.max(0, state.t);
+  const a = Math.abs(state.t);
   $('elapsed').textContent = state.quake
-    ? `${state.t < 0 ? '−' : '+'}${String(Math.floor(Math.abs(state.t) / 60)).padStart(2, '0')}:${String(Math.floor(Math.abs(state.t) % 60)).padStart(2, '0')}`
+    ? `${state.t < 0 ? '−' : '+'}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(Math.floor(a % 60)).padStart(2, '0')}`
     : '--:--';
-  void s;
 }
 
 function renderClock() {
   const d = clock(state.t);
   $('clock-date').textContent = fmtDate(d);
   $('clock-time').textContent = fmtTime(d);
-}
-
-function renderStatus() {
-  const pill = $('status-pill');
-  if (!state.quake) { pill.textContent = 'Idle'; pill.className = 'pill'; return; }
-  if (state.t >= state.sim.duration()) { pill.textContent = 'Finished'; pill.className = 'pill done'; return; }
-  pill.textContent = state.playing ? 'Live' : 'Paused';
-  pill.className = state.playing ? 'pill live' : 'pill';
+  $('clock-tag').textContent = !state.quake ? 'Idle' : state.playing ? 'Simulated' : state.t >= state.sim.duration() ? 'Finished' : 'Paused';
 }
 
 function currentReports(t) {
@@ -346,116 +417,170 @@ function currentReports(t) {
   const infos = sim.reports.filter((r) => r.at <= t && r.type !== 'tsunami');
   const info = infos.at(-1) || null;
   const tsunami = sim.reports.find((r) => r.type === 'tsunami' && r.at <= t) ? sim.tsunami : null;
-  const lastEew = sim.eewReports.at(-1);
-  const eewActive = eew && !(eew.isFinal && t - eew.at > 30) && !(info && info.type === 'detail');
-  return { eew: eewActive ? eew : null, info, tsunami, everEew: !!eew, lastEew };
+  const eewActive = eew && !(eew.isFinal && t - eew.at > 60);
+  return { eew: eewActive ? eew : null, info, tsunami };
 }
 
 let lastCardsKey = '';
 function renderCards() {
-  if (!state.quake) { $('cards').innerHTML = idleCard(); lastCardsKey = 'idle'; return; }
-  const t = state.t;
-  const { eew, info, tsunami } = currentReports(t);
-  const key = [eew?.serial, info?.type, !!tsunami, t < 0, state.activeId].join('|');
-  if (key === lastCardsKey) return;
-  lastCardsKey = key;
   const ctx = { q: state.quake, sim: state.sim, clock, subByCode: state.data.subByCode, tsuByCode: state.data.tsuByCode };
-  let html = '';
-  if (eew) html += eewCard(eew, ctx);
-  if (info) html += infoCard(info, ctx);
-  if (!eew && !info) html += shakingCard(ctx, t);
-  if (tsunami) html += tsunamiCard(tsunami, ctx);
-  $('cards').innerHTML = html;
-}
-
-function renderMap(force) {
-  const now = performance.now();
-  if (!force && now - state.lastMapUpdate < 66) return;
-  state.lastMapUpdate = now;
-  const m = state.map;
-  const sim = state.sim;
-  const n = state.data.stations.length;
-  const colors = new Array(n);
   if (!state.quake) {
-    for (let i = 0; i < n; i++) colors[i] = realtimeColor(-2.6);
-    m.setStationColors(colors);
-    m.setWaves(null, 0, 0);
-    m.setAreas(new Map(), new Map(), new Set());
-    m.setTsunami(new Map());
+    const html = state.view === 'tsunami' ? noTsunamiCard(ctx) : idleCard();
+    if (lastCardsKey !== html) { $('cards').innerHTML = html; lastCardsKey = html; }
     return;
   }
   const t = state.t;
-  for (let i = 0; i < n; i++) colors[i] = realtimeColor(sim.realtime(i, t));
-  m.setStationColors(colors);
-
-  const q = state.quake;
-  const maxR = 2500;
-  const pR = t > 0 ? surfaceRadius(t, q.depth, VP) : 0;
-  const sR = t > 0 ? surfaceRadius(t, q.depth, VS) : 0;
-  m.setWaves(q, pR < maxR ? pR : 0, sR < maxR ? sR : 0);
-
   const { eew, info, tsunami } = currentReports(t);
-  let observed = new Map();
-  if (info && (info.type === 'detail' || info.type === 'lpgm')) observed = sim.reportRegions(Infinity, 1);
-  else if (info) observed = sim.reportRegions(info.at, 3);
-  if (!info || info.type === 'flash' || info.type === 'hypocenter') {
-    // live observed intensities on top of whatever has been reported so far
-    for (const [code, k] of sim.regionsAt(t)) if (!(observed.get(code) >= k)) observed.set(code, k);
+  let html = '';
+  if (state.view === 'realtime') {
+    if (eew) html += eewCard(eew, ctx);
+    html += shakingCard(state.sim.realtimeRegions(t), ctx);
+  } else if (state.view === 'info') {
+    if (info) {
+      html += infoCard(info, ctx);
+      const regions = info.type === 'flash' ? state.sim.reportRegions(info.at, 3)
+        : info.type === 'hypocenter' ? new Map() : state.sim.reportRegions(Infinity, 1);
+      if (regions.size) html += regionListCard(regions, ctx);
+    } else {
+      html += idleCard().replace('No earthquake', t < 0 ? 'Waiting for the earthquake' : 'No report yet');
+    }
+  } else {
+    html += tsunami ? tsunamiCard(tsunami, ctx, t) : noTsunamiCard(ctx);
   }
-  const forecast = eew ? eew.forecast : new Map();
-  const warn = eew && eew.isWarning ? eew.warnAreas : new Set();
-  m.setAreas(observed, forecast, warn);
-  m.setTsunami(tsunami ? tsunami.areas : new Map());
+  if (html !== lastCardsKey) {
+    const scroll = $('cards').scrollTop;
+    $('cards').innerHTML = html;
+    $('cards').scrollTop = scroll;
+    lastCardsKey = html;
+  }
+}
+
+function renderMap() {
+  const m = state.map;
+  const sim = state.sim;
+  const rt = state.rt;
+  const n = rt.length;
+  if (!state.quake) {
+    rt.fill(-2.6);
+    m.setStations(rt);
+    m.setWaves(null, 0, 0);
+    m.setAreas(new Map(), new Map(), new Set());
+    m.setTsunami(new Map());
+    m.setObserved([]);
+    m.setBlink(false);
+    return;
+  }
+  const t = state.t;
+  const q = state.quake;
+  const { eew, info, tsunami } = currentReports(t);
+  m.setBlink(state.view === 'tsunami' && !!tsunami && (tsunami.level === 'major' || tsunami.level === 'warning'));
+
+  if (state.view === 'realtime') {
+    for (let i = 0; i < n; i++) rt[i] = sim.realtime(i, t);
+    m.setStations(rt);
+    checkShaking();
+    const pR = t > 0 ? surfaceRadius(t, q.depth, VP) : 0;
+    const sR = t > 0 ? surfaceRadius(t, q.depth, VS) : 0;
+    m.setWaves(q, pR < 2500 ? pR : 0, sR < 2500 ? sR : 0);
+    m.setAreas(new Map(), eew ? eew.forecast : new Map(), eew && eew.isWarning ? eew.warnAreas : new Set());
+  } else {
+    // Info view, and the tsunami view underneath its coastlines (dimmed by the map), show
+    // the intensities reported so far.
+    let observed = new Map();
+    let cutoff = -Infinity;
+    if (info && (info.type === 'detail' || info.type === 'lpgm')) { observed = sim.reportRegions(Infinity, 1); cutoff = Infinity; }
+    else if (info) { observed = sim.reportRegions(info.at, 3); cutoff = info.at; }
+    m.setAreas(observed, new Map(), new Set());
+    if (state.view === 'info') {
+      m.setObserved(cutoff === -Infinity ? [] : observedPoints(cutoff, info.type === 'flash' || info.type === 'hypocenter' ? 3 : 1));
+    } else {
+      m.setTsunami(tsunami ? tsunami.areas : new Map());
+    }
+  }
+}
+
+// Station squares for the info view.
+function observedPoints(at, minK) {
+  const out = [];
+  const st = state.data.stations;
+  for (let i = 0; i < st.length; i++) {
+    if (st[i][4]) continue;
+    const k = classIndex(at === Infinity ? state.sim.st.peak[i] : state.sim.observed(i, at));
+    if (k >= minK) out.push({ lat: st[i][0], lon: st[i][1], k });
+  }
+  return out;
+}
+
+// "Shaking detected" sound each time live shaking reaches a new intensity level.
+function checkShaking() {
+  if (!state.playing) return;
+  let maxI = -3;
+  const st = state.data.stations;
+  for (let i = 0; i < st.length; i++) if (!st[i][4] && state.rt[i] > maxI) maxI = state.rt[i];
+  const k = classIndex(maxI);
+  if (k >= 1 && k > state.shakeK) {
+    state.shakeK = k;
+    play(`shake${Math.min(7, k)}`, { exclusive: false });
+  }
 }
 
 // ---------------------------------------------------------------- announcements
+function eewKey(r) {
+  return `${r.maxClass}|${r.isWarning}|${r.warnAreas.size}`;
+}
+
 function announce(ev) {
   const r = ev.report;
   const q = state.quake;
   const sub = state.data.subByCode;
   if (ev.kind === 'eew') {
+    autoView('realtime');
+    const key = eewKey(r);
+    const k = CLASSES.indexOf(r.maxClass ?? '0');
     if (r.serial === 1) {
-      play(r.isWarning ? 'eewWarning' : 'eewForecast');
-      say(`Earthquake Early Warning. Earthquake detected in ${r.name}. Estimated maximum intensity ${label(r.maxClass)}.`, { interrupt: true });
-      toast(`EEW #1 · ${r.name}`);
+      play(r.isWarning ? 'eewWarning' : k >= 3 ? 'eewInt3' : 'eew');
+      say(`Earthquake Early Warning. Earthquake in ${r.name}. Estimated maximum intensity ${label(r.maxClass)}.`, { interrupt: true });
     } else if (r.isWarning && !state.warned) {
       play('eewWarning');
       const areas = prefecturesOf(r.warnAreas, sub).slice(0, 6).join(', ');
-      say(`Earthquake Early Warning. Strong shaking expected in ${areas}. Take cover.`, { interrupt: true });
-      toast('EEW (Warning) issued');
-    } else if (r.newAreas.length) {
-      play('update');
+      say(`Earthquake Early Warning. Strong shaking expected in ${areas}.`, { interrupt: true });
+      toast('EEW (warning) issued');
     } else if (r.isFinal) {
+      play('final');
+    } else if (key !== state.lastEewKey) {
       play('update');
     }
     if (r.isWarning) state.warned = true;
-    state.seenEew = r.serial;
+    state.lastEewKey = key;
     return;
   }
   if (ev.kind === 'flash') {
-    play('info');
+    autoView('info');
+    play('flash');
     const regions = state.sim.reportRegions(r.at, 3);
     let maxK = 0; for (const k of regions.values()) maxK = Math.max(maxK, k);
     const top = [...regions].filter(([, k]) => k === maxK).map(([c]) => sub.get(c)?.properties.en).filter(Boolean);
-    say(`Seismic intensity flash. Intensity ${label(CLASSES[maxK])} observed in ${top.slice(0, 4).join(', ')}.`);
-    toast('Seismic Intensity Flash');
+    say(`Seismic intensity flash. Intensity ${label(CLASSES[maxK])} in ${top.slice(0, 4).join(', ')}.`);
   } else if (ev.kind === 'hypocenter') {
-    play('info');
-    say(`Hypocenter information. The epicenter is ${q.place.name}, at a depth of ${depthWords(q.depth)}, magnitude ${q.mag.toFixed(1)}. ${r.tsunamiComment}`);
+    autoView('info');
+    play('hypocenter');
+    say(`Hypocenter information. ${q.place.name}, depth ${depthWords(q.depth)}, magnitude ${q.mag.toFixed(1)}. ${r.tsunamiComment}`);
   } else if (ev.kind === 'detail') {
-    play('info');
-    say(`Earthquake information. Maximum intensity ${label(q.maxClass)}. The epicenter is ${q.place.name}, depth ${depthWords(q.depth)}, magnitude ${q.mag.toFixed(1)}. ${r.tsunamiComment}`);
-    toast('Earthquake Information issued');
+    autoView('info');
+    play('detail');
+    say(`Earthquake information. Maximum intensity ${label(q.maxClass)}. ${q.place.name}, depth ${depthWords(q.depth)}, magnitude ${q.mag.toFixed(1)}. ${r.tsunamiComment}`);
   } else if (ev.kind === 'tsunami') {
-    play('tsunami');
+    autoView('tsunami');
+    state.tsunamiShownAt = state.t;
     const ts = state.sim.tsunami;
     const lvl = ts.level;
+    play({ major: 'tsunamiMajor', warning: 'tsunamiWarning', advisory: 'tsunamiAdvisory', forecast: 'tsunamiForecast' }[lvl]);
     const names = [...ts.areas].filter(([, a]) => a.level === lvl).map(([c]) => state.data.tsuByCode.get(c)?.properties.en).filter(Boolean);
     const title = { major: 'Major tsunami warning', warning: 'Tsunami warning', advisory: 'Tsunami advisory', forecast: 'Tsunami forecast' }[lvl];
-    say(`${title} issued for ${names.slice(0, 5).join(', ')}.${lvl === 'major' || lvl === 'warning' ? ' Evacuate immediately.' : ''}`, { interrupt: true });
+    say(`${title} for ${names.slice(0, 5).join(', ')}.${lvl === 'major' || lvl === 'warning' ? ' Evacuate immediately.' : ''}`, { interrupt: true });
     toast(title);
   } else if (ev.kind === 'lpgm') {
-    play('info');
+    play('other');
   }
 }
 
@@ -489,7 +614,7 @@ function load(key, fallback) {
 function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ }
 }
-function savePrefs() { save(STORE + '.prefs', prefs); }
+function savePrefs() { save(STORE + '.prefs', P); }
 
 init().catch((err) => {
   document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;bottom:0;left:0;color:#f88;padding:8px">${String(err && err.stack || err)}</pre>`);

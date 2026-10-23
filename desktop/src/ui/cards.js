@@ -1,186 +1,237 @@
-// Sidebar cards (EEW, information reports, tsunami) and the history list, as HTML strings.
-import { CLASSES, CLASS_LABEL, CLASS_COLOR, CLASS_TEXT } from '../sim/intensity.js';
+// Sidebar cards (EEW, shaking, information, tsunami) and the history list, as HTML strings.
+import { CLASSES, CLASS_LABEL, CLASS_COLOR, CLASS_TEXT, classOf } from '../sim/intensity.js';
 import { tsunamiText } from '../sim/engine.js';
-import { badgeHtml } from './map.js';
+import { badgeHtml, TSUNAMI_COLOR } from './map.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const p2 = (n) => String(n).padStart(2, '0');
 
 export function fmtTime(date, withSeconds = true) {
-  const p = (n) => String(n).padStart(2, '0');
-  const t = `${p(date.getHours())}:${p(date.getMinutes())}${withSeconds ? ':' + p(date.getSeconds()) : ''}`;
-  return t;
+  return `${p2(date.getHours())}:${p2(date.getMinutes())}${withSeconds ? ':' + p2(date.getSeconds()) : ''}`;
 }
 
 export function fmtDate(date) {
-  const p = (n) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}/${p(date.getMonth() + 1)}/${p(date.getDate())}`;
+  return `${date.getFullYear()}/${p2(date.getMonth() + 1)}/${p2(date.getDate())}`;
 }
 
-function bigBadge(cls, label) {
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function fmtShort(date) {
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${fmtTime(date, false)}`;
+}
+
+function clsValue(cls) {
+  if (!cls) return '?';
+  const mod = cls[1] === '-' ? '−' : cls[1] === '+' ? '+' : '';
+  return `${cls[0]}${mod ? `<sup>${mod}</sup>` : ''}`;
+}
+
+// Wide coloured box: "<label>  <value>"
+function bigBox(cls, label) {
   const bg = cls ? CLASS_COLOR[cls] : '#3a4552';
   const fg = cls ? CLASS_TEXT[cls] : '#cfd8e3';
-  let value = '?';
-  if (cls) {
-    const mod = cls[1] === '-' ? '−' : cls[1] === '+' ? '+' : '';
-    value = `${cls[0]}${mod ? `<sup>${mod}</sup>` : ''}`;
-  }
-  return `<span class="badge xl" style="background:${bg};color:${fg}"><span class="stack"><span class="lbl">${label}</span><span>${value}</span></span></span>`;
+  return `<div class="bigbox" style="background:${bg};color:${fg}"><span class="bb-label">${label}</span><span class="bb-value">${clsValue(cls)}</span></div>`;
 }
 
+// Magnitude / depth rows with the small colour bar of the original app.
+function magColor(m) {
+  return m >= 7 ? '#c43ad6' : m >= 6 ? '#ef2f2f' : m >= 5 ? '#f08a24' : m >= 4 ? '#f5d327' : '#45a8f5';
+}
+function depthColor(d) {
+  return d < 30 ? '#ef2f2f' : d < 100 ? '#f08a24' : d < 300 ? '#f5d327' : '#45a8f5';
+}
 function depthText(d) {
   return d <= 0 ? 'Very shallow' : `${Math.round(d)} km`;
 }
-
-function areaNames(codes, subByCode, limit = 99) {
-  const names = [...codes].map((c) => subByCode.get(c)?.properties.en).filter(Boolean);
-  const shown = names.slice(0, limit).join(', ');
-  return names.length > limit ? `${shown} and ${names.length - limit} more` : shown;
+function magDepth(mag, depth) {
+  return `
+    <div class="mrow"><span>Magnitude</span><b>${mag.toFixed(1)}</b><i style="background:${magColor(mag)}"></i></div>
+    <div class="mrow"><span>Depth</span><b>${depthText(depth)}</b><i style="background:${depthColor(depth)}"></i></div>`;
 }
 
-// Group a Map(code -> class index) into rows of "badge  names", strongest first.
-function areaRows(regions, subByCode, minK = 1) {
-  const groups = new Map();
-  for (const [code, k] of regions) {
-    if (k < minK) continue;
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(code);
-  }
-  return [...groups.keys()].sort((a, b) => b - a).map((k) => `
-    <div class="area-row">${badgeHtml(CLASSES[k])}<span class="names">${esc(areaNames(groups.get(k), subByCode))}</span></div>`).join('');
+function areaName(code, ctx) {
+  return ctx.subByCode.get(code)?.properties.en ?? code;
 }
 
+// --------------------------------------------------------------- realtime view
 export function eewCard(r, ctx) {
-  const kind = r.isWarning ? 'warning' : 'forecast';
-  const title = r.isWarning ? 'Earthquake Early Warning (Warning)' : 'Earthquake Early Warning (Forecast)';
-  const tag = r.isFinal ? 'Final' : `#${r.serial}`;
-  const warn = r.isWarning && r.warnAreas.size
-    ? `<div class="note alert"><b>Strong shaking expected:</b> ${esc(areaNames(r.warnAreas, ctx.subByCode, 12))}</div>` : '';
+  const tag = r.isWarning ? `Warning ${r.isFinal ? 'final' : '#' + r.serial}` : `Forecast ${r.isFinal ? 'final' : '#' + r.serial}`;
+  const lp = r.lpgm > 0
+    ? `<div class="lprow"><span>Est. max long-period<br>ground motion class</span><b>${r.lpgm}</b></div>` : '';
+  const note = r.emergency
+    ? '<div class="alertnote">This is an emergency Earthquake Early Warning. Protect yourself immediately.</div>'
+    : r.isWarning ? '<div class="alertnote">Strong shaking expected. Protect yourself.</div>' : '';
   return `
   <div class="card">
-    <div class="card-head ${kind} ${r.isFinal ? 'final' : ''}">${title}<span class="tag">${tag}</span></div>
+    <div class="card-head ${r.isWarning ? 'warning' : 'forecast'}">Early Warning (EEW)<span class="tag">${tag}</span></div>
     <div class="card-body">
-      <div class="maxrow">${bigBadge(r.maxClass, 'Est. max')}
-        <div class="meta">
-          <div class="place">${esc(r.name)}</div>
-          <div class="sub">M${r.mag.toFixed(1)} · Depth ${depthText(r.depth)}</div>
-          <div class="sub">Issued ${fmtTime(ctx.clock(r.at))}${r.lpgm ? ` · Est. LPGM class ${r.lpgm}` : ''}</div>
-        </div>
-      </div>
-      ${warn}
+      <div class="place">${esc(r.name)} <small>earthquake</small></div>
+      <div class="sub">${fmtDate(ctx.clock(0))} ${fmtTime(ctx.clock(0))} occurred</div>
+      ${bigBox(r.maxClass, 'Est. max<br>intensity')}
+      ${lp}
+      ${magDepth(r.mag, r.depth)}
+      ${note}
     </div>
   </div>`;
 }
 
+export function shakingCard(list, ctx) {
+  const top = list.length ? classOf(list[0].i) : null;
+  const rows = list.slice(0, 8).map((x) => `
+    <div class="area-row">${badgeHtml(classOf(x.i))}<span class="names">${esc(areaName(x.code, ctx))}</span></div>`).join('');
+  return `
+  <div class="card">
+    <div class="card-head">Shaking detected</div>
+    <div class="card-body">
+      ${bigBox(top, 'Real-time<br>max intensity')}
+      <div class="areas">${rows || '<span class="sub">Waiting for the waves to arrive</span>'}</div>
+    </div>
+  </div>`;
+}
+
+// --------------------------------------------------------------- info view
 const REPORT_TITLE = {
   flash: 'Seismic Intensity Flash',
   hypocenter: 'Hypocenter Information',
-  detail: 'Earthquake Information',
-  lpgm: 'Long-Period Ground Motion Observation',
+  detail: 'Intensity Information',
+  lpgm: 'Intensity Information',
 };
 
 export function infoCard(rep, ctx) {
   const { q, sim } = ctx;
   const origin = ctx.clock(0);
+  const ts = sim.tsunami.level;
+  const tsBtn = ts === 'none'
+    ? '<div class="tsunote none">No tsunami concern</div>'
+    : ts === 'slight' ? '<div class="tsunote slight">Slight sea-level change possible</div>'
+      : `<div class="tsunote alert">${ts === 'major' || ts === 'warning' ? 'Tsunami warnings in effect' : 'Tsunami bulletins in effect'}</div>`;
   if (rep.type === 'flash') {
     const regions = sim.reportRegions(rep.at, 3);
     let maxK = 0; for (const k of regions.values()) maxK = Math.max(maxK, k);
     return `
     <div class="card">
-      <div class="card-head">${REPORT_TITLE.flash}<span class="tag">${fmtTime(ctx.clock(rep.at), false)}</span></div>
+      <div class="card-head"><span class="ico">i</span>${REPORT_TITLE.flash}</div>
       <div class="card-body">
-        <div class="maxrow">${bigBadge(CLASSES[maxK], 'Max int.')}
-          <div class="meta"><div class="place">Strong shaking observed</div>
-          <div class="sub">Around ${fmtTime(origin, false)} · Hypocenter under investigation</div></div>
-        </div>
-        <div class="areas">${areaRows(regions, ctx.subByCode, 3)}</div>
+        ${bigBox(CLASSES[maxK], 'Max<br>intensity')}
+        <div class="sub">${fmtShort(origin)} or so</div>
+        <div class="kvline"><span>Epicenter and size</span><b>Under investigation</b></div>
+        <div class="tsunote">Tsunami: under investigation</div>
       </div>
     </div>`;
   }
-  const isDetail = rep.type === 'detail' || rep.type === 'lpgm';
-  const regions = isDetail ? sim.reportRegions(Infinity, 1) : new Map();
-  const maxCls = q.maxClass;
-  const lp = rep.type === 'lpgm' ? `<div class="note">Long-period ground motion class up to ${Math.max(1, Math.min(4, Math.round((q.mag - 5.8) * 1.5)))} observed.</div>` : '';
+  const known = rep.type !== 'hypocenter';
   return `
   <div class="card">
-    <div class="card-head">${REPORT_TITLE[rep.type]}<span class="tag">${fmtTime(ctx.clock(rep.at), false)}</span></div>
+    <div class="card-head"><span class="ico">i</span>${REPORT_TITLE[rep.type]}</div>
     <div class="card-body">
-      <div class="maxrow">${bigBadge(isDetail || rep.type === 'hypocenter' ? maxCls : null, 'Max int.')}
-        <div class="meta">
-          <div class="place">${esc(q.place.name)}</div>
-          <div class="sub">M${q.mag.toFixed(1)} · Depth ${depthText(q.depth)}</div>
-          <div class="sub">${fmtDate(origin)} ${fmtTime(origin, false)}</div>
-        </div>
-      </div>
-      <div class="note ${sim.tsunami.level !== 'none' && sim.tsunami.level !== 'slight' ? 'alert' : ''}">${esc(rep.tsunamiComment || tsunamiText(sim.tsunami.level))}</div>
-      ${lp}
-      ${isDetail ? `<div class="areas">${areaRows(regions, ctx.subByCode, 1)}</div>` : ''}
+      ${known ? bigBox(q.maxClass, 'Max<br>intensity') : ''}
+      <div class="sub">${fmtShort(origin)} or so</div>
+      <div class="place">${esc(q.place.name)}</div>
+      <div class="sub">an earthquake occurred</div>
+      ${magDepth(q.mag, q.depth)}
+      ${tsBtn}
+      ${rep.type === 'lpgm' ? `<div class="lprow"><span>Long-period ground<br>motion class observed</span><b>${Math.max(1, Math.min(4, Math.round((q.mag - 5.8) * 1.5)))}</b></div>` : ''}
     </div>
   </div>`;
 }
 
-const TSU_TITLE = { major: 'Major Tsunami Warning', warning: 'Tsunami Warning', advisory: 'Tsunami Advisory', forecast: 'Tsunami Forecast' };
-const TSU_BG = { major: '#8d17a0', warning: '#c81e2a', advisory: '#d9b51c', forecast: '#2179c2' };
+export function regionListCard(regions, ctx) {
+  const groups = new Map();
+  for (const [code, k] of regions) {
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(code);
+  }
+  const rows = [...groups.keys()].sort((a, b) => b - a).map((k) => `
+    <div class="area-row">${badgeHtml(CLASSES[k])}<span class="names">${esc(groups.get(k).map((c) => areaName(c, ctx)).join(', '))}</span></div>`).join('');
+  return `
+  <div class="card">
+    <div class="card-head">Intensity by area</div>
+    <div class="card-body"><div class="areas tall">${rows}</div></div>
+  </div>`;
+}
 
-export function tsunamiCard(ts, ctx) {
+// --------------------------------------------------------------- tsunami view
+const TSU_TITLE = { major: 'Major Tsunami Warning', warning: 'Tsunami Warning', advisory: 'Tsunami Advisory', forecast: 'Tsunami Forecast' };
+const TSU_SHORT = { major: 'Major tsunami warning', warning: 'Tsunami warning', advisory: 'Tsunami advisory', forecast: 'Tsunami forecast' };
+
+export function tsunamiCard(ts, ctx, t) {
+  const { q } = ctx;
+  const origin = ctx.clock(0);
   const levels = ['major', 'warning', 'advisory', 'forecast'];
-  const rows = levels.map((lvl) => {
+  const groups = levels.map((lvl) => {
     const list = [...ts.areas.entries()].filter(([, a]) => a.level === lvl);
     if (!list.length) return '';
-    const items = list.map(([code, a]) => {
+    const height = lvl === 'forecast' ? '' : list.reduce((best, [, a]) => (rankH(a.height) > rankH(best) ? a.height : best), '');
+    const items = list.sort((a, b) => a[1].arrivalMin - b[1].arrivalMin).map(([code, a]) => {
       const f = ctx.tsuByCode.get(code);
-      return `${esc(f ? f.properties.en : code)}${a.height ? ` <span style="opacity:.7">(${a.height})</span>` : ''}`;
-    }).join(', ');
-    return `<div class="area-row"><span class="badge" style="background:${TSU_BG[lvl]};color:${lvl === 'advisory' ? '#1b1b1b' : '#fff'};font-size:11px;min-width:64px">${lvl === 'forecast' ? 'Forecast' : lvl === 'advisory' ? 'Advisory' : lvl === 'major' ? 'Major' : 'Warning'}</span><span class="names">${items}</span></div>`;
+      const arrive = t >= a.arrivalMin * 60
+        ? '<span class="pill-y">Arriving now (estimated)</span>'
+        : `<span class="pill-d">Expected ${fmtTime(ctx.clock(a.arrivalMin * 60), false)}</span>`;
+      return `<div class="tsu-item"><div>${esc(f ? f.properties.en : code)}</div>${lvl === 'forecast' ? '' : arrive}</div>`;
+    }).join('');
+    return `
+      <div class="tsu-group" style="--c:${TSUNAMI_COLOR[lvl]}">
+        <div class="tsu-title">${height ? `<span class="hbadge">${esc(height.replace('over ', '>').replace(' m', 'm'))}</span>` : ''}${TSU_SHORT[lvl]}</div>
+        <div class="tsu-list">${items}</div>
+      </div>`;
   }).join('');
-  const top = ts.level;
   return `
   <div class="card">
-    <div class="card-head" style="background:${TSU_BG[top]};${top === 'advisory' ? 'color:#1b1b1b' : ''}">${TSU_TITLE[top]}<span class="tag">${fmtTime(ctx.clock(ts.at), false)}</span></div>
+    <div class="card-head" style="background:${ts.level === 'advisory' ? '#c9a90f' : ts.level === 'forecast' ? '#2179c2' : '#d32631'}">${TSU_TITLE[ts.level]}</div>
     <div class="card-body">
-      ${top === 'major' || top === 'warning' ? '<div class="note alert">Evacuate immediately from coastal and riverside areas.</div>' : ''}
-      <div class="areas">${rows}</div>
+      <div class="sub">${fmtShort(origin)} or so</div>
+      <div class="place">${esc(q.place.name)}</div>
+      ${magDepth(q.mag, q.depth)}
+      ${groups}
     </div>
   </div>`;
 }
 
+export function noTsunamiCard(ctx) {
+  const lvl = ctx.sim ? ctx.sim.tsunami.level : 'none';
+  return `
+  <div class="card">
+    <div class="card-head">Tsunami information</div>
+    <div class="card-body"><div class="sub">${esc(ctx.q ? tsunamiText(lvl) : 'No tsunami bulletins in effect.')}</div></div>
+  </div>`;
+}
+
+function rankH(h) {
+  return { '': 0, '1 m': 1, '3 m': 2, '5 m': 3, '10 m': 4, 'over 10 m': 5 }[h ?? ''] ?? 0;
+}
+
+// --------------------------------------------------------------- idle + history
 export function idleCard() {
   return `
   <div class="card">
-    <div class="card-head">Earthquake Information</div>
+    <div class="card-head"><span class="ico">i</span>Intensity Information</div>
     <div class="card-body">
-      <div class="maxrow">${bigBadge(null, 'Max int.')}
-        <div class="meta"><div class="place">No earthquake</div><div class="sub">Place an epicenter on the map to start a simulation.</div></div>
-      </div>
-    </div>
-  </div>`;
-}
-
-export function shakingCard(ctx, t) {
-  return `
-  <div class="card">
-    <div class="card-head">Shaking detected</div>
-    <div class="card-body">
-      <div class="maxrow">${bigBadge(null, 'Max int.')}
-        <div class="meta"><div class="place">Analysing…</div><div class="sub">${t > 0 ? 'Seismic waves are spreading' : 'Waiting for the first waves'}</div></div>
-      </div>
+      ${bigBox(null, 'Max<br>intensity')}
+      <div class="place">No earthquake</div>
+      <div class="sub">Press “New quake” and click the map to place an epicenter.</div>
     </div>
   </div>`;
 }
 
 export function historyItem(h, active) {
   const d = new Date(h.origin);
+  const cls = h.maxClass;
   return `
   <div class="hist ${active ? 'active' : ''}" data-id="${h.id}">
-    ${badgeHtml(h.maxClass)}
+    <div class="hbox" style="background:${cls ? CLASS_COLOR[cls] : '#3a4552'};color:${cls ? CLASS_TEXT[cls] : '#cfd8e3'}"><span>Max int.</span><b>${clsValue(cls)}</b></div>
     <div class="info">
       <div class="name">${esc(h.name)}</div>
-      <div class="line2"><span>${fmtDate(d).slice(5)} ${fmtTime(d, false)}</span><span>Depth ${depthText(h.depth)}</span><span class="mag">M${h.mag.toFixed(1)}</span></div>
+      <div class="line2">${fmtShort(d)} or so</div>
+      <div class="line3"><span>Depth ${depthText(h.depth)}</span><i style="background:${depthColor(h.depth)}"></i><span class="mag">M ${h.mag.toFixed(1)}</span><i style="background:${magColor(h.mag)}"></i></div>
     </div>
   </div>`;
 }
 
-export function legendHtml() {
-  return CLASSES.slice(1).map((c) => badgeHtml(c)).join('') + `<span style="margin-left:6px;color:#8ea3b8;font-size:11px">JMA intensity</span>`;
+export function legendHtml(view) {
+  if (view === 'tsunami') {
+    return `<div class="lg-title">Coastline colours</div>` + ['major', 'warning', 'advisory', 'forecast'].map((l) =>
+      `<div class="lg-row"><i style="background:${TSUNAMI_COLOR[l]}"></i>${TSU_SHORT[l]}</div>`).join('');
+  }
+  const title = view === 'realtime' ? 'Map colours (forecast)' : 'Map colours';
+  return `<div class="lg-title">${title}</div>` + CLASSES.slice(1).reverse().map((c) =>
+    `<div class="lg-row"><i style="background:${CLASS_COLOR[c]}"></i>Intensity ${CLASS_LABEL[c]}</div>`).join('');
 }
-
-export { CLASS_LABEL };

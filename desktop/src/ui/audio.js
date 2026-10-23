@@ -1,19 +1,28 @@
-// Synthesised alert sounds (WebAudio) and spoken announcements (Web Speech API).
+// Alert sounds and spoken announcements.
+// Built-in sounds are the files that ship with the original Scratch project (src/sounds/),
+// played for the same events. Each alert can be overridden with a user-chosen file.
 
 let ctx = null;
 let master = null;
 let volume = 0.7;
-let speechOn = true;
+let speechOn = false;
 
 function ac() {
   if (!ctx) {
-    ctx = new AudioContext();
+    ctx = new AudioContext({ latencyHint: 'playback' });
     master = ctx.createGain();
     master.gain.value = volume;
     master.connect(ctx.destination);
   }
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
+}
+
+// Let the audio device sleep when nothing is playing (saves power).
+let idleTimer = null;
+function scheduleSuspend(ms) {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if (ctx && ctx.state === 'running') ctx.suspend(); }, ms + 1500);
 }
 
 export function setVolume(v) {
@@ -23,54 +32,47 @@ export function setVolume(v) {
 
 export function setSpeech(on) {
   speechOn = on;
-  if (!on) speechSynthesis.cancel();
+  if (!on && 'speechSynthesis' in globalThis) speechSynthesis.cancel();
 }
 
-function tone(freq, start, len, { type = 'sine', gain = 0.35, glide = 0 } = {}) {
-  const c = ac();
-  const o = c.createOscillator();
-  const g = c.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(freq, c.currentTime + start);
-  if (glide) o.frequency.linearRampToValueAtTime(freq + glide, c.currentTime + start + len);
-  g.gain.setValueAtTime(0, c.currentTime + start);
-  g.gain.linearRampToValueAtTime(gain, c.currentTime + start + 0.015);
-  g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + start + len);
-  o.connect(g).connect(master);
-  o.start(c.currentTime + start);
-  o.stop(c.currentTime + start + len + 0.05);
-}
-
-const SOUNDS = {
-  // first EEW (forecast): two bright chimes
-  eewForecast() { tone(988, 0, 0.5); tone(1319, 0.18, 0.7); },
-  // EEW warning: urgent alternating tones
-  eewWarning() {
-    for (let i = 0; i < 4; i++) {
-      tone(1046, i * 0.42, 0.2, { type: 'square', gain: 0.18 });
-      tone(784, i * 0.42 + 0.21, 0.2, { type: 'square', gain: 0.18 });
-    }
-  },
-  // EEW update
-  update() { tone(1175, 0, 0.18, { gain: 0.2 }); },
-  // information report
-  info() { tone(659, 0, 0.6, { gain: 0.25 }); tone(988, 0.22, 0.9, { gain: 0.25 }); },
-  // tsunami bulletin
-  tsunami() { for (let i = 0; i < 3; i++) tone(440, i * 0.55, 0.45, { type: 'triangle', gain: 0.35, glide: -60 }); },
-  // strong shaking reached a land station
-  shaking() { tone(220, 0, 0.35, { type: 'sawtooth', gain: 0.12 }); },
+// slot -> built-in file
+const BUILTIN = {
+  eew: 'eew.wav', eewInt3: 'eew-int3.mp3', eewWarning: 'eew-warning.mp3', update: 'eew-update.mp3',
+  final: 'eew-final.mp3', cancel: 'eew-cancel.wav',
+  flash: 'info-flash.mp3', hypocenter: 'info-hypocenter.mp3', detail: 'info-detail.mp3', other: 'info-other.mp3',
+  tsunamiForecast: 'tsa01.mp3', tsunamiAdvisory: 'tsa02.mp3', tsunamiWarning: 'tsa03.mp3', tsunamiMajor: 'tsa04.mp3',
+  shake1: 'newshi0.wav', shake2: 'newshi1.wav', shake3: 'newshi2.wav', shake4: 'newshi3.wav',
+  shake5: 'newshi4.wav', shake6: 'newshi5.wav', shake7: 'newshi6.wav',
 };
 
-// User-chosen sound files override the synthesised ones (stored in IndexedDB as Blobs).
 export const SOUND_SLOTS = [
-  ['eewForecast', 'EEW (first report)'],
+  ['eew', 'EEW (first report)'],
+  ['eewInt3', 'EEW (intensity 3 or more)'],
   ['eewWarning', 'EEW (warning)'],
   ['update', 'EEW (update)'],
-  ['info', 'Earthquake information'],
-  ['tsunami', 'Tsunami bulletin'],
+  ['final', 'EEW (final report)'],
+  ['flash', 'Seismic intensity flash'],
+  ['hypocenter', 'Hypocenter information'],
+  ['detail', 'Earthquake information'],
+  ['tsunamiMajor', 'Major tsunami warning'],
+  ['tsunamiWarning', 'Tsunami warning'],
+  ['tsunamiAdvisory', 'Tsunami advisory'],
+  ['tsunamiForecast', 'Tsunami forecast'],
 ];
-const custom = new Map(); // slot -> AudioBuffer
 
+const builtin = new Map(); // slot -> AudioBuffer (decoded lazily)
+const custom = new Map(); // slot -> {name, buffer}
+
+async function builtinBuffer(slot) {
+  if (builtin.has(slot)) return builtin.get(slot);
+  const file = BUILTIN[slot];
+  if (!file) return null;
+  const p = fetch(`sounds/${file}`).then((r) => r.arrayBuffer()).then((b) => ac().decodeAudioData(b)).catch(() => null);
+  builtin.set(slot, p);
+  return p;
+}
+
+// ------------------------------------------------------------------ custom files (IndexedDB)
 function db() {
   return new Promise((res, rej) => {
     const r = indexedDB.open('quakesim-sounds', 1);
@@ -90,21 +92,18 @@ async function dbOp(mode, fn) {
   });
 }
 
-async function decode(blob) {
-  return ac().decodeAudioData(await blob.arrayBuffer());
-}
-
 export async function loadCustomSounds() {
   try {
     for (const [slot] of SOUND_SLOTS) {
       const rec = await dbOp('readonly', (s) => s.get(slot));
-      if (rec) custom.set(slot, { name: rec.name, buffer: await decode(rec.blob) });
+      if (rec) custom.set(slot, { name: rec.name, buffer: await ac().decodeAudioData(await rec.blob.arrayBuffer()) });
     }
-  } catch { /* no stored sounds */ }
+    scheduleSuspend(0);
+  } catch { /* nothing stored */ }
 }
 
 export async function setCustomSound(slot, file) {
-  const buffer = await decode(file);
+  const buffer = await ac().decodeAudioData(await file.arrayBuffer());
   await dbOp('readwrite', (s) => s.put({ name: file.name, blob: file }, slot));
   custom.set(slot, { name: file.name, buffer });
 }
@@ -118,23 +117,28 @@ export function customSoundName(slot) {
   return custom.get(slot)?.name ?? null;
 }
 
+// ------------------------------------------------------------------ playback
 let current = null;
-export function play(name) {
+export async function play(slot, { exclusive = true } = {}) {
   try {
-    const c = custom.get(name);
-    if (c) {
-      current?.stop();
-      const src = ac().createBufferSource();
-      src.buffer = c.buffer;
-      src.connect(master);
-      src.start();
-      current = src;
-      return;
-    }
-    SOUNDS[name]?.();
+    const buffer = custom.get(slot)?.buffer ?? await builtinBuffer(slot);
+    if (!buffer) return;
+    const c = ac();
+    if (exclusive) { try { current?.stop(); } catch { /* already stopped */ } }
+    const src = c.createBufferSource();
+    src.buffer = buffer;
+    src.connect(master);
+    src.start();
+    if (exclusive) current = src;
+    scheduleSuspend(buffer.duration * 1000);
   } catch { /* audio not available */ }
 }
 
+export function preload() {
+  for (const slot of Object.keys(BUILTIN)) builtinBuffer(slot);
+}
+
+// ------------------------------------------------------------------ speech
 let englishVoice = null;
 function pickVoice() {
   const voices = speechSynthesis.getVoices();
@@ -151,7 +155,10 @@ export function say(text, { interrupt = false } = {}) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'en-US';
   if (englishVoice) u.voice = englishVoice;
-  u.rate = 1.02;
   u.volume = Math.min(1, volume * 1.2);
   speechSynthesis.speak(u);
+}
+
+export function stopSpeech() {
+  if ('speechSynthesis' in globalThis) speechSynthesis.cancel();
 }

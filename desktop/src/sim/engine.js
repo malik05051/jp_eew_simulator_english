@@ -199,6 +199,7 @@ export class Simulation {
         serial: idx + 1, at: t, isWarning: warned, isFinal: idx === offsets.length - 1,
         lat: est.lat, lon: est.lon, depth, mag, name: place.name,
         maxClass: maxK > 0 ? CLASSES[maxK] : null, lpgm,
+        emergency: warned && maxK >= 7, // JMA treats forecasts of 6 lower or more as an emergency warning
         forecast, warnAreas: new Set(warnAreas), newAreas,
       });
     });
@@ -247,24 +248,31 @@ export class Simulation {
     const finals = [...this.regionFinal.entries()];
     if (!finals.length) return out;
     const tsunamiComment = tsunamiText(this.tsunami.level);
+    const bulletin = this.tsunami.level !== 'none' && this.tsunami.level !== 'slight';
     let tFlash = null;
-    if (Number.isFinite(this.firstThreeAt)) {
-      tFlash = this.firstThreeAt + 70;
+    if (Number.isFinite(this.firstThreeAt)) tFlash = this.firstThreeAt + 70;
+    // JMA issues the tsunami bulletin together with the hypocenter report, so the
+    // "tsunami warnings in effect" line never appears before the bulletin itself.
+    if (bulletin) {
+      this.tsunami.at = tFlash !== null ? tFlash + 60 : 180;
+      out.push({ type: 'tsunami', at: this.tsunami.at });
+    }
+    if (tFlash !== null) {
       out.push({ type: 'flash', at: tFlash });
       out.push({ type: 'hypocenter', at: tFlash + 60, tsunamiComment });
     }
     const lastArrival = Math.max(...finals.map(([, v]) => v.t));
-    const tDetail = Math.max(150, (tFlash ?? 0) + 120, lastArrival + 30);
+    const tDetail = Math.max(150, (tFlash ?? 0) + 120, lastArrival + 30, bulletin ? this.tsunami.at + 30 : 0);
     out.push({ type: 'detail', at: tDetail, tsunamiComment });
-    if (this.tsunami.level !== 'none' && this.tsunami.level !== 'slight') {
-      out.push({ type: 'tsunami', at: this.tsunami.at });
-    }
     if (this.quake.mag >= 6.0) out.push({ type: 'lpgm', at: tDetail + 60 });
     return out.sort((a, b) => a.at - b.at);
   }
 
   // Region intensities observed by time t: Map code -> class index.
+  // Cached on a 0.25 s grid: the map asks for this several times a second.
   regionsAt(t) {
+    const key = Math.floor(t * 4);
+    if (this._regionsKey === key && this._regionsQuake === this.quake) return this._regions;
     const m = new Map();
     for (let i = 0; i < this.stations.length; i++) {
       if (this.stations[i][4]) continue;
@@ -273,7 +281,23 @@ export class Simulation {
       const code = this.stations[i][2];
       if (!(m.get(code) >= k)) m.set(code, k);
     }
+    this._regionsKey = key;
+    this._regionsQuake = this.quake;
+    this._regions = m;
     return m;
+  }
+
+  // Strongest real-time intensity per region right now: [{code, i}] sorted strongest first.
+  realtimeRegions(t) {
+    const m = new Map();
+    for (let i = 0; i < this.stations.length; i++) {
+      if (this.stations[i][4]) continue;
+      const v = this.realtime(i, t);
+      if (v < 0.5) continue;
+      const code = this.stations[i][2];
+      if (!(m.get(code) >= v)) m.set(code, v);
+    }
+    return [...m].map(([code, i]) => ({ code, i })).sort((a, b) => b.i - a.i);
   }
 
   // Region intensities a report would contain (observations up to report time).

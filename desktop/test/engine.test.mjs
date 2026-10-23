@@ -40,8 +40,12 @@ test('2024 Noto: strong shaking, EEW warning, tsunami warning', () => {
   assert.ok(['warning', 'major'].includes(sim.tsunami.level), sim.tsunami.level);
   assert.ok(sim.tsunami.areas.has('360'), 'Ishikawa Noto coast');
   const types = sim.reports.map((r) => r.type);
-  assert.deepEqual(types.slice(0, 2), ['flash', 'hypocenter']);
+  assert.equal(types[0], 'flash');
   assert.ok(types.includes('detail') && types.includes('tsunami'));
+  // the bulletin comes out together with (and just before) the hypocenter report
+  const at = (type) => sim.reports.find((r) => r.type === type).at;
+  assert.equal(at('tsunami'), at('hypocenter'));
+  assert.ok(types.indexOf('tsunami') < types.indexOf('hypocenter'));
 });
 
 test('2011 Tohoku: major tsunami warning and saturated EEW magnitude', () => {
