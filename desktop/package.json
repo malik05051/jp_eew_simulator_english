@@ -1,0 +1,40 @@
+{
+  "name": "quake-sim-desktop",
+  "productName": "Quake Simulator",
+  "version": "1.0.0",
+  "description": "Japan earthquake and Earthquake Early Warning simulator (desktop app)",
+  "main": "main.js",
+  "author": "malik05051",
+  "license": "MPL-2.0",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "dist": "electron-builder --linux AppImage"
+  },
+  "dependencies": {
+    "maplibre-gl": "^4.7.1"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "io.github.malik05051.quakesim",
+    "productName": "Quake Simulator",
+    "files": [
+      "main.js",
+      "src/**/*",
+      "node_modules/maplibre-gl/dist/**/*",
+      "LICENSE"
+    ],
+    "linux": {
+      "target": "AppImage",
+      "category": "Science",
+      "icon": "build/icon.png",
+      "artifactName": "QuakeSimulator-${version}-${arch}.AppImage"
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}

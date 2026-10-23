@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src blob:; child-src blob:; connect-src 'self' file: data: blob:">
+  <title>Quake Simulator</title>
+  <link rel="stylesheet" href="../node_modules/maplibre-gl/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div id="brand">
+        <span class="brand-dot"></span>
+        <span>Quake Simulator</span>
+        <span id="status-pill" class="pill">Idle</span>
+      </div>
+      <div id="cards"></div>
+      <div class="section-title">Earthquake history <button id="clear-history" class="link-btn" title="Clear history">Clear</button></div>
+      <div id="history"></div>
+      <div id="credits">Map data: Japan Meteorological Agency, Natural Earth</div>
+    </aside>
+
+    <main id="stage">
+      <div id="map"></div>
+
+      <div id="clock" class="glass"><span id="clock-date"></span> <span id="clock-time"></span> <span id="clock-tag">Simulated</span></div>
+
+      <nav id="layer-bar" class="glass">
+        <button data-layer="stations" class="on" title="Stations (real-time shaking)">
+          <svg viewBox="0 0 24 24"><circle cx="6" cy="8" r="2"/><circle cx="14" cy="6" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="18" cy="16" r="2"/></svg>
+        </button>
+        <button data-layer="waves" class="on" title="P and S waves">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9"/></svg>
+        </button>
+        <button data-layer="areas" class="on" title="Intensity by area">
+          <svg viewBox="0 0 24 24"><path d="M3 5l6-2 6 2 6-2v16l-6 2-6-2-6 2z" opacity=".85"/></svg>
+        </button>
+        <button data-layer="tsunami" class="on" title="Tsunami bulletins">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M2 16c3 0 3-3 6-3s3 3 6 3 3-3 6-3M2 20c3 0 3-3 6-3s3 3 6 3 3-3 6-3"/></svg>
+        </button>
+        <span class="sep"></span>
+        <button id="btn-fit" title="Fit Japan">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+        <button id="btn-settings" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+      </nav>
+
+      <div id="legend" class="glass"></div>
+
+      <section id="setup" class="glass panel">
+        <header>
+          <h2>New earthquake</h2>
+          <button class="icon-btn" id="setup-close" title="Close">&times;</button>
+        </header>
+        <p class="hint" id="setup-hint">Click the map to place the epicenter, or pick a preset.</p>
+        <label class="field">
+          <span>Preset</span>
+          <select id="preset">
+            <option value="">Custom</option>
+          </select>
+        </label>
+        <div class="field-row">
+          <div class="kv"><span>Epicenter</span><b id="setup-place">—</b></div>
+          <div class="kv"><span>Lat / Lon</span><b id="setup-coords">—</b></div>
+        </div>
+        <label class="field">
+          <span>Magnitude <b id="mag-val">7.0</b></span>
+          <input type="range" id="mag" min="3" max="9.5" step="0.1" value="7.0">
+        </label>
+        <label class="field">
+          <span>Depth <b id="depth-val">10 km</b></span>
+          <input type="range" id="depth" min="0" max="700" step="1" value="10">
+        </label>
+        <button id="start" class="primary" disabled>Start simulation</button>
+      </section>
+
+      <section id="settings" class="glass panel">
+        <header>
+          <h2>Settings</h2>
+          <button class="icon-btn" id="settings-close" title="Close">&times;</button>
+        </header>
+        <label class="field">
+          <span>Volume <b id="vol-val">70%</b></span>
+          <input type="range" id="volume" min="0" max="100" step="1" value="70">
+        </label>
+        <label class="check"><input type="checkbox" id="speech" checked> Spoken announcements</label>
+        <label class="check"><input type="checkbox" id="autoplay-speed"> Start new quakes at 2× speed</label>
+        <label class="check"><input type="checkbox" id="follow" checked> Zoom to the epicenter on start</label>
+        <div class="field">
+          <span>Alert sounds</span>
+          <div id="sound-slots"></div>
+          <input type="file" id="sound-file" accept="audio/*" hidden>
+        </div>
+        <p class="hint">Simplified model for education and entertainment. Not for disaster-prevention decisions.</p>
+      </section>
+
+      <div id="playback" class="glass">
+        <button id="play" class="icon-btn big" title="Play / pause (Space)">
+          <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="icon-pause" viewBox="0 0 24 24" hidden><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        </button>
+        <button id="replay" class="icon-btn" title="Replay from the start">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <span id="elapsed">--:--</span>
+        <input type="range" id="timeline" min="-5" max="120" step="0.1" value="-5" disabled>
+        <div id="speeds">
+          <button data-speed="1" class="on">1×</button>
+          <button data-speed="2">2×</button>
+          <button data-speed="5">5×</button>
+          <button data-speed="10">10×</button>
+        </div>
+        <button id="new-quake" class="primary small" title="New earthquake (N)">New quake</button>
+      </div>
+
+      <div id="toast"></div>
+    </main>
+  </div>
+
+  <script src="../node_modules/maplibre-gl/dist/maplibre-gl.js"></script>
+  <script type="module" src="ui/app.js"></script>
+</body>
+</html>
