@@ -2,18 +2,18 @@
 <!-- Created with https://packager.turbowarp.org/ -->
 <!-- Modifications by walbcglgh are licensed under the Mozilla Public License 2.0. See LICENSE. -->
 <!-- Original project: https://turbowarp.org/1220818872 -->
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <!-- We only include this to explicitly loosen the CSP of various packager environments. It does not provide any security. -->
   <meta http-equiv="Content-Security-Policy" content="default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: blob:">
-  <title>強震モニタ風地震シミュレーション</title>
+  <title>Kyoshin Monitor-style Earthquake Simulator</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#000000">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="強震モニタ風地震">
+  <meta name="apple-mobile-web-app-title" content="Kyoshin-style Quake Sim">
   <style id="sim-fontface">
     @font-face {
       font-family:"Zen Maru Gothic";
@@ -252,10 +252,10 @@
   <div id="app"></div>
 
   <div id="launch" class="screen" hidden title="Click to start">
-    <h1 class="launch-title">強震モニタ風地震シミュレーション</h1>
-    <div class="launch-button">スタート</div>
-    <div class="launch-hint">クリックして開始</div>
-    <a class="launch-github" href="https://github.com/walbcglgh/jp_eew_simulator" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">GitHub リポジトリ</a>
+    <h1 class="launch-title">Kyoshin Monitor-style Earthquake Simulator</h1>
+    <div class="launch-button">Start</div>
+    <div class="launch-hint">Click to start</div>
+    <a class="launch-github" href="https://github.com/walbcglgh/jp_eew_simulator" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">GitHub repository</a>
     <div class="launch-footer">
       <a href="https://tdn.fj.kg" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">
         <img class="launch-logo" src="images/logo.jpg" alt="TDN Studio">
@@ -663,95 +663,95 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 <div id="sim-ctrl-panel">
   <div id="sim-ctrl-title">
-    <span data-i18n="title">シミュレーション設定</span>
-    <button id="sim-ctrl-close" title="閉じる">&times;</button>
+    <span data-i18n="title">Simulation settings</span>
+    <button id="sim-ctrl-close" title="Close">&times;</button>
   </div>
   <div class="sim-info-top">
     <div class="sim-info-row">
-      <span class="sim-info-label" data-i18n="epicenter">震央</span>
+      <span class="sim-info-label" data-i18n="epicenter">Epicenter</span>
       <span class="sim-info-val highlight" id="sim-epicenter-val">&#8212;</span>
     </div>
     <div class="sim-info-row">
-      <span class="sim-info-label" data-i18n="elapsed">発生後</span>
+      <span class="sim-info-label" data-i18n="elapsed">Elapsed</span>
       <span class="sim-info-val" id="sim-elapsed-val">&#8212;</span>
     </div>
   </div>
   <div id="sim-tabs">
-    <button class="sim-tab active" data-page="quake" data-i18n="tabQuake">地震</button>
-    <button class="sim-tab" data-page="sound" data-i18n="tabSound">音声</button>
-    <button class="sim-tab" data-page="more" data-i18n="tabMore">その他</button>
+    <button class="sim-tab active" data-page="quake" data-i18n="tabQuake">Quake</button>
+    <button class="sim-tab" data-page="sound" data-i18n="tabSound">Sound</button>
+    <button class="sim-tab" data-page="more" data-i18n="tabMore">More</button>
   </div>
   <div id="sim-btn-row">
-    <button class="sim-btn" id="sim-btn-flag"  title="リスタート"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e0e0e0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v18"/><path d="M6 3l13 5-13 5"/></svg></button>
-    <button class="sim-btn" id="sim-btn-pause" title="一時停止 / 再開"><svg width="14" height="14" viewBox="0 0 24 24" fill="#e0e0e0"><rect x="5" y="4" width="4" height="16" rx="1"/><rect x="15" y="4" width="4" height="16" rx="1"/></svg></button>
-    <button class="sim-btn" id="sim-btn-stop"  title="ストップ"><svg width="14" height="14" viewBox="0 0 24 24" fill="#c96a6a"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+    <button class="sim-btn" id="sim-btn-flag"  title="Restart"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e0e0e0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v18"/><path d="M6 3l13 5-13 5"/></svg></button>
+    <button class="sim-btn" id="sim-btn-pause" title="Pause / resume"><svg width="14" height="14" viewBox="0 0 24 24" fill="#e0e0e0"><rect x="5" y="4" width="4" height="16" rx="1"/><rect x="15" y="4" width="4" height="16" rx="1"/></svg></button>
+    <button class="sim-btn" id="sim-btn-stop"  title="Stop"><svg width="14" height="14" viewBox="0 0 24 24" fill="#c96a6a"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
   </div>
   <div class="sim-page active" data-page="quake">
     <div class="sim-row">
       <select id="sim-preset-select">
-        <option value="" data-i18n="presetSelect">プリセット</option>
-        <option value="jp" data-i18n="presetJp">東日本大震災（2011）</option>
-        <option value="kumamoto" data-i18n="presetKum">熊本地震 本震（2016）</option>
-        <option value="hokkaido" data-i18n="presetHokkaido">北海道胆振東部地震（2018）</option>
-        <option value="noto" data-i18n="presetNoto">能登半島地震（2024）</option>
-        <option value="hanshin" data-i18n="presetHyogo">兵庫県南部地震（1995）</option>
+        <option value="" data-i18n="presetSelect">Preset</option>
+        <option value="jp" data-i18n="presetJp">2011 Tohoku earthquake</option>
+        <option value="kumamoto" data-i18n="presetKum">2016 Kumamoto earthquake (mainshock)</option>
+        <option value="hokkaido" data-i18n="presetHokkaido">2018 Hokkaido Iburi-East earthquake</option>
+        <option value="noto" data-i18n="presetNoto">2024 Noto Peninsula earthquake</option>
+        <option value="hanshin" data-i18n="presetHyogo">1995 Great Hanshin earthquake</option>
       </select>
     </div>
     <div class="sim-row">
-      <div class="sim-label-row"><span class="sim-label-name" data-i18n="mag">マグニチュード</span><span class="sim-label-val" id="sim-val-m">M 5.0</span></div>
+      <div class="sim-label-row"><span class="sim-label-name" data-i18n="mag">Magnitude</span><span class="sim-label-val" id="sim-val-m">M 5.0</span></div>
       <input class="sim-slider" id="sim-slide-m" type="range" min="1" max="12" step="0.1" value="5">
     </div>
     <div class="sim-row">
-      <div class="sim-label-row"><span class="sim-label-name" data-i18n="depth">震源の深さ</span><span class="sim-label-val" id="sim-val-d">10 km</span></div>
+      <div class="sim-label-row"><span class="sim-label-name" data-i18n="depth">Focal depth</span><span class="sim-label-val" id="sim-val-d">10 km</span></div>
       <input class="sim-slider" id="sim-slide-d" type="range" min="0" max="1000" step="1" value="10">
     </div>
     <div class="sim-row">
-      <div class="sim-label-row"><span class="sim-label-name" data-i18n="timing">発生タイミング</span><span class="sim-label-val" id="sim-val-t">0 秒</span></div>
+      <div class="sim-label-row"><span class="sim-label-name" data-i18n="timing">Occurrence time</span><span class="sim-label-val" id="sim-val-t">0 s</span></div>
       <input class="sim-slider" id="sim-slide-t" type="range" min="0" max="300" step="1" value="0">
     </div>
   </div>
   <div class="sim-page" data-page="sound">
     <div class="sim-row">
-      <div class="sim-label-row"><span class="sim-label-name" data-i18n="volume">音量</span><span class="sim-label-val" id="sim-val-volume">100%</span></div>
+      <div class="sim-label-row"><span class="sim-label-name" data-i18n="volume">Volume</span><span class="sim-label-val" id="sim-val-volume">100%</span></div>
       <div class="sim-vol">
         <input class="sim-slider" id="sim-slide-volume" type="range" min="0" max="100" step="1" value="100">
-        <button id="sim-btn-mute" title="ミュート" data-i18n="mute">ミュート</button>
+        <button id="sim-btn-mute" title="Mute" data-i18n="mute">Mute</button>
       </div>
     </div>
   </div>
   <div class="sim-page" data-page="more">
     <div class="sim-row">
       <select id="sim-lang-select">
+        <option value="en">English</option>
         <option value="ja">日本語</option>
         <option value="zh">繁體中文</option>
-        <option value="en">English</option>
       </select>
     </div>
     <div class="sim-io-row">
-      <button class="sim-btn sim-btn-text" id="sim-btn-share" title="設定リンクをコピー" data-i18n="share">共有</button>
-      <button class="sim-btn sim-btn-text" id="sim-btn-export" title="設定を JSON で保存" data-i18n="export">書き出し</button>
-      <button class="sim-btn sim-btn-text" id="sim-btn-import" title="保存した設定を読み込み" data-i18n="import">読み込み</button>
-      <button class="sim-btn sim-btn-text" id="sim-btn-help" title="操作方法" style="flex:0 0 42px" data-i18n="help">?</button>
+      <button class="sim-btn sim-btn-text" id="sim-btn-share" title="Share" data-i18n="share">Share</button>
+      <button class="sim-btn sim-btn-text" id="sim-btn-export" title="Save settings as JSON" data-i18n="export">Export</button>
+      <button class="sim-btn sim-btn-text" id="sim-btn-import" title="Load saved settings" data-i18n="import">Import</button>
+      <button class="sim-btn sim-btn-text" id="sim-btn-help" title="?" style="flex:0 0 42px" data-i18n="help">?</button>
     </div>
   </div>
 </div>
-<div id="sim-ctrl-toggle" title="設定" data-i18n="settings">設定</div>
+<div id="sim-ctrl-toggle" title="Settings" data-i18n="settings">Settings</div>
 <div id="sim-eew-epicenter"></div>
 <input type="file" id="sim-file-input" accept="application/json,.json" hidden>
 <div id="sim-toast"></div>
 <div id="sim-help">
   <div id="sim-help-box">
-    <div id="sim-help-title" data-i18n="helpTitle">操作方法</div>
-    <div id="sim-help-sub">強震モニタ風地震シミュレーション</div>
+    <div id="sim-help-title" data-i18n="helpTitle">How to use</div>
+    <div id="sim-help-sub" data-i18n="appTitle">Kyoshin Monitor-style Earthquake Simulator</div>
     <div class="sim-shortcuts">
-      <span class="sim-kbd">Enter</span><span class="sim-info-label" data-i18n="scRestart">リスタート（地震を発生）</span>
-      <span class="sim-kbd">C</span><span class="sim-info-label" data-i18n="scPanel">設定パネルの開閉</span>
-      <span class="sim-kbd">1 / 2 / 3</span><span class="sim-info-label" data-i18n="scTabsHelp">地震情報 / EEW / 津波 タブ</span>
-      <span class="sim-kbd">Space</span><span class="sim-info-label" data-i18n="scSpace">開始 / 一時停止（Scratch 側）</span>
-      <span class="sim-kbd">Esc</span><span class="sim-info-label" data-i18n="scEsc">この画面を閉じる</span>
+      <span class="sim-kbd">Enter</span><span class="sim-info-label" data-i18n="scRestart">Restart (trigger the earthquake)</span>
+      <span class="sim-kbd">C</span><span class="sim-info-label" data-i18n="scPanel">Toggle the settings panel</span>
+      <span class="sim-kbd">1 / 2 / 3</span><span class="sim-info-label" data-i18n="scTabsHelp">Earthquake info / EEW / Tsunami tabs</span>
+      <span class="sim-kbd">Space</span><span class="sim-info-label" data-i18n="scSpace">Start / pause (Scratch side)</span>
+      <span class="sim-kbd">Esc</span><span class="sim-info-label" data-i18n="scEsc">Close this screen</span>
     </div>
-    <p id="sim-help-text" data-i18n="helpText">左下の「設定」でマグニチュード・震源の深さ・発生タイミングを調整します。［旗］で地震を発生、［一時停止］で停止、［停止］で終了します。EEW 宣布中は推定震央の名称が画面上に表示されます。設定は「書き出し」で JSON に保存し、「読み込み」で復元できます。</p>
-    <button id="sim-help-close" data-i18n="close">閉じる</button>
+    <p id="sim-help-text" data-i18n="helpText">Use "Settings" at the bottom left to adjust magnitude, focal depth and occurrence time. [Flag] triggers the earthquake, [Pause] suspends it, [Stop] ends it. While an EEW is active the estimated epicenter name appears on screen. Export your settings to JSON and restore them with Import.</p>
+    <button id="sim-help-close" data-i18n="close">Close</button>
   </div>
 </div>
 
@@ -759,7 +759,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 (function() {
   var I18N = {
     ja: {
-      title:'シミュレーション設定', epicenter:'震央', elapsed:'発生後',
+      appTitle:'強震モニタ風地震シミュレーション', title:'シミュレーション設定', epicenter:'震央', elapsed:'発生後',
       mag:'マグニチュード', depth:'震源の深さ', timing:'発生タイミング',
       volume:'音量', mute:'ミュート', settings:'設定', close:'閉じる',
       tabQuake:'地震', tabSound:'音声', tabMore:'その他',
@@ -778,7 +778,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
       toastUrlApplied:'共有された設定を適用しました'
     },
     zh: {
-      title:'模擬設定', epicenter:'震央', elapsed:'發生後',
+      appTitle:'強震監視器風地震模擬器', title:'模擬設定', epicenter:'震央', elapsed:'發生後',
       mag:'規模', depth:'震源深度', timing:'發生時間',
       volume:'音量', mute:'靜音', settings:'設定', close:'關閉',
       tabQuake:'地震', tabSound:'音效', tabMore:'其他',
@@ -797,7 +797,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
       toastUrlApplied:'已套用分享的設定'
     },
     en: {
-      title:'Simulation settings', epicenter:'Epicenter', elapsed:'Elapsed',
+      appTitle:'Kyoshin Monitor-style Earthquake Simulator', title:'Simulation settings', epicenter:'Epicenter', elapsed:'Elapsed',
       mag:'Magnitude', depth:'Focal depth', timing:'Occurrence time',
       volume:'Volume', mute:'Mute', settings:'Settings', close:'Close',
       tabQuake:'Quake', tabSound:'Sound', tabMore:'More',
@@ -824,12 +824,12 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     'sim-btn-share':'share', 'sim-btn-export':'titleExport', 'sim-btn-import':'titleImport',
     'sim-btn-help':'help', 'sim-ctrl-toggle':'settings', 'sim-help-close':'close'
   };
-  var lang = 'ja';
+  var lang = 'en';
   try { var savedLang = localStorage.getItem(LANG_KEY); if(savedLang && I18N[savedLang]) lang = savedLang; } catch(e) {}
   function t(key) {
-    var d = I18N[lang] || I18N.ja;
+    var d = I18N[lang] || I18N.en;
     if(d && d[key] != null) return d[key];
-    return (I18N.ja[key] != null) ? I18N.ja[key] : key;
+    return (I18N.en[key] != null) ? I18N.en[key] : key;
   }
   var PAUSE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#e0e0e0"><rect x="5" y="4" width="4" height="16" rx="1"/><rect x="15" y="4" width="4" height="16" rx="1"/></svg>';
   var PLAY_ICON  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#e0e0e0"><path d="M8 5v14l11-7z"/></svg>';
@@ -895,22 +895,22 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
   /* ── Variable IDs (Stage) ───────────────────────────────── */
   var VID = {
-    m:   'wxNNoeiHaPKWd4T4DeDi',   /* マグニチュード             */
-    d:   '7ydCwlkAAbRaUWUSD6Cc',   /* 深さ                       */
-    t:   'DW4X1FGN37FrQHyx3OeU',   /* スタート後発生秒数         */
-    ep1: 'NV0uo4Qny3UvZfEZ8yzZ',   /* 実際の震源用震源           */
-    ep2: 'Bv3Xntvj12NnJ5PlWGXr',   /* 震源 (緊急地震速報旁の震央) */
-    ela: 'DW4X1FGN37FrQHyx3OeU',   /* 発生後経過秒 (same as t if no dedicated var) */
-    eew: 'cLEXs9QENRoExzadot96',   /* EEW 全体で発表中？  (0=off, 1/2=active) */
-    tab: 'Mi1pYIXTO2uH3mVAhKxf',   /* タブ (1=地震情報, 2=EEW, 3=津波)         */
-    cx:  'VIskjWg3VLwWsTs3I0lI',   /* 7-センターX */
-    cy:  'XRT0aHyc0S8t4kkvJXxw',   /* 7-センターY */
-    zoom:'iwKioCy8xZ4x9kZBF9mF',   /* 7-拡大率 */
-    lookX:'gvdafUZaIYlI0aLwuAYW',  /* 調べるx（経度） */
-    lookY:'eX8NAi9p1cUr2PoR6XVu',  /* 調べるy（緯度） */
-    decided:'vegZ2ygz2HddkzRiggeF',/* 震源決定された（実際の震源情報 sprite） */
-    srcX:'Y4WF9V9N0xyQD4gGhzQt',   /* 震源X（実際の震源情報 sprite） */
-    srcY:'x8Gmgb0vTPCu6HfX8TND'    /* 震源Y（実際の震源情報 sprite） */
+    m:   'wxNNoeiHaPKWd4T4DeDi',   /* magnitude                   */
+    d:   '7ydCwlkAAbRaUWUSD6Cc',   /* depth                       */
+    t:   'DW4X1FGN37FrQHyx3OeU',   /* seconds since start         */
+    ep1: 'NV0uo4Qny3UvZfEZ8yzZ',   /* real-quake epicenter        */
+    ep2: 'Bv3Xntvj12NnJ5PlWGXr',   /* epicenter (next to the EEW) */
+    ela: 'DW4X1FGN37FrQHyx3OeU',   /* elapsed seconds (same as t if no dedicated var) */
+    eew: 'cLEXs9QENRoExzadot96',   /* EEW active overall? (0=off, 1/2=active) */
+    tab: 'Mi1pYIXTO2uH3mVAhKxf',   /* tab (1=quake info, 2=EEW, 3=tsunami)  */
+    cx:  'VIskjWg3VLwWsTs3I0lI',   /* 7-center X */
+    cy:  'XRT0aHyc0S8t4kkvJXxw',   /* 7-center Y */
+    zoom:'iwKioCy8xZ4x9kZBF9mF',   /* 7-zoom */
+    lookX:'gvdafUZaIYlI0aLwuAYW',  /* x to look up (longitude) */
+    lookY:'eX8NAi9p1cUr2PoR6XVu',  /* y to look up (latitude) */
+    decided:'vegZ2ygz2HddkzRiggeF',/* epicenter decided (sprite 実際の震源情報) */
+    srcX:'Y4WF9V9N0xyQD4gGhzQt',   /* epicenter X (sprite 実際の震源情報) */
+    srcY:'x8Gmgb0vTPCu6HfX8TND'    /* epicenter Y (sprite 実際の震源情報) */
   };
   /* List IDs */
   var LID = { epicenter:'w6RbQi2ENF9PN18vXYUF', jma:'3OYPeliWyrC0Z5qC2xvI' };
@@ -962,24 +962,24 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     applyVolume();
   });
   var PRESETS = {
-    jp:       { magnitude:9.0, depthKm:24, startOffsetSec:0, lat:38.10, lon:142.90, name:'三陸沖' },
-    kumamoto: { magnitude:7.3, depthKm:12, startOffsetSec:0, lat:32.75, lon:130.76, name:'熊本県' },
-    hokkaido: { magnitude:6.7, depthKm:37, startOffsetSec:0, lat:42.69, lon:142.01, name:'胆振地方' },
-    noto:     { magnitude:7.6, depthKm:16, startOffsetSec:0, lat:37.50, lon:137.27, name:'能登半島' },
-    hanshin:  { magnitude:7.3, depthKm:16, startOffsetSec:0, lat:34.60, lon:135.04, name:'兵庫県南部' }
+    jp:       { magnitude:9.0, depthKm:24, startOffsetSec:0, lat:38.10, lon:142.90, name:'Off Sanriku' },
+    kumamoto: { magnitude:7.3, depthKm:12, startOffsetSec:0, lat:32.75, lon:130.76, name:'Kumamoto, Kumamoto area' },
+    hokkaido: { magnitude:6.7, depthKm:37, startOffsetSec:0, lat:42.69, lon:142.01, name:'Iburi, West' },
+    noto:     { magnitude:7.6, depthKm:16, startOffsetSec:0, lat:37.50, lon:137.27, name:'Ishikawa, Noto' },
+    hanshin:  { magnitude:7.3, depthKm:16, startOffsetSec:0, lat:34.60, lon:135.04, name:'Hyogo, Southwest' }
   };
   var pendingEpicenter = null;
-  /* 專案決定震央的流程：
-       1. 點地圖→震源X/Y→「座標変換」→經緯度寫入震源列表第 1、2 格
-       2. 列表長度 > 7 時「震源決定された」會改為 true
-       3. 「決定後の処理」等待該值與現在時間差 < 0.1 秒
-     因此不依賴模擬點擊（一次點擊就會新增一筆震源），
-     而是直接寫入列表並維持開啟那個開關。 */
+  /* How the project decides the epicenter:
+       1. click the map -> epicenter X/Y -> "座標変換" -> lat/lon are written to items 1-2 of the epicenter list
+       2. once the list is longer than 7, "震源決定された" is set to true
+       3. "決定後の処理" waits until that value is less than 0.1 s old
+     So instead of simulating clicks (every click would add another epicenter),
+     the list is written directly and the switch is kept on. */
   function sprite(name) {
     var targets = window.vm && window.vm.runtime && window.vm.runtime.targets;
     return targets ? targets.find(function(t) { return t.getName && t.getName() === name; }) : null;
   }
-  /* 地圖中心座標（專案 7-センターX/Y 單位） */
+  /* map centre coordinates (project units of 7-センターX/Y) */
   function projectX(lon) {
     return (((lon + 44) % 360) - 180) * 10;
   }
@@ -987,14 +987,14 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     var rad = (45 + lat / 2) * Math.PI / 180;
     return Math.log(Math.tan(rad)) * 572.9577951308232 - 374.04780730560344;
   }
-  /* 寫入震源列表：構位順序為 1=纬度、2=經度、3=深さ、4=マグニチュード */
+  /* write the epicenter list: item order is 1=latitude, 2=longitude, 3=depth, 4=magnitude */
   function markEpicenter(lat, lon, name) {
     var s = stage();
     if(!s) return false;
     var list = s.variables[LID.epicenter];
     if(!list || !list.value) return false;
     var v = list.value;
-    /* 8 格（>7）才會讓專案的「処理」判斷為已確定 */
+    /* 8 items (>7) make the project's "処理" treat the epicenter as decided */
     while(v.length < 8) v.push('');
     v[0] = lat;
     v[1] = lon;
@@ -1002,7 +1002,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     v[3] = parseFloat(slideM.value);
     if(s.variables[VID.lookX]) s.variables[VID.lookX].value = lon;
     if(s.variables[VID.lookY]) s.variables[VID.lookY].value = lat;
-    /* 該定 #決定された = 2 */
+    /* set #決定された = 2 */
     if(s.variables['acWILl7zJAQioxeJQ3Xf']) s.variables['acWILl7zJAQioxeJQ3Xf'].value = 2;
     if(name && s.variables[VID.epi1]) s.variables[VID.epi1].value = name;
     try {
@@ -1012,7 +1012,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     } catch(e) {}
     return true;
   }
-  /* 開啟該專案的「震源決定された」（在実際の震源情報 sprite 上） */
+  /* turn on the project's "震源決定された" (on the 実際の震源情報 sprite) */
   function openDecided() {
     var src = sprite('実際の震源情報');
     if(src && src.variables && src.variables[VID.decided]) {
@@ -1021,7 +1021,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     }
     return false;
   }
-  /* 專案的「処理」每帧可能重置門關，在列表維持 7 格期間持續打開它 */
+  /* the project's "処理" may reset the switch every frame, so keep it on while the list holds 7+ items */
   function holdEpicenter() {
     if(!pendingEpicenter) return;
     var s = stage();
@@ -1029,7 +1029,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     var list = s.variables[LID.epicenter];
     if(!list || !list.value || list.value.length < 8) return;
     var v = list.value;
-    /* 維持經群度，避免被專案機寫 */
+    /* keep lat/lon so the project does not overwrite them */
     v[0] = pendingEpicenter.lat;
     v[1] = pendingEpicenter.lon;
     v[2] = parseInt(slideD.value, 10);
@@ -1146,11 +1146,11 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
       slideT.value = Math.min(300, Math.max(0, numOr(s.variables[VID.t].value, 0)));
     syncLabels();
 
-    /* 震央 – try ep2 (震源) first, fall back to ep1 */
+    /* epicenter - try ep2 first, fall back to ep1 */
     var epText = getVar(VID.ep2) || getVar(VID.ep1) || null;
     epiVal.textContent = epText ? String(epText) : '—';
 
-    /* 経過秒 – スタート後発生秒数 */
+    /* elapsed seconds - seconds since start */
     var ela = getVar(VID.ela);
     elapsedVal.textContent = (ela !== null && ela !== '' && Number(ela) > 0)
       ? Math.round(Number(ela)) + ' ' + t('sec')
@@ -1222,12 +1222,12 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
     if(window.vm) window.vm.greenFlag();
     hidePanel();
     if(!pendingEpicenter) return;
-    /* 綠旗會清空震源列表並卡在等待中，等待回檔不可能自己補回，
-       因此這裡不能只等待，必須直接寫回。 */
+    /* The green flag clears the epicenter list and then blocks waiting;
+       the wait can never refill it itself, so we must write it back directly. */
     var lat = pendingEpicenter.lat, lon = pendingEpicenter.lon, name = pendingEpicenter.name;
     markEpicenter(lat, lon, name);
     openDecided();
-    /* 持續守護 10 秒，隨時間重寫，確保專案能讀到正確值 */
+    /* guard for 10 seconds, rewriting over time so the project reads the correct values */
     var guard = 0;
     var guardTimer = setInterval(function() {
       guard++;

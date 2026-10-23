@@ -1,7 +1,7 @@
 {
-  "name": "強震モニタ風地震シミュレーション",
-  "short_name": "強震モニタ風",
-  "description": "日本気象庁風の地震・緊急地震速報シミュレーター",
+  "name": "Kyoshin Monitor-style Earthquake Simulator",
+  "short_name": "Quake Sim",
+  "description": "A JMA-style earthquake and Earthquake Early Warning (EEW) simulator for Japan",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

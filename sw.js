@@ -4,7 +4,7 @@
  *  - quake-sim-data.bin is ~4MB, so it is cached on first successful load only.
  *  - Never cache anything that is not a 200 basic response.
  */
-const CACHE = 'eewsim-v1';
+const CACHE = 'eewsim-v2-en';
 const SHELL = [
   './',
   './index.html',
