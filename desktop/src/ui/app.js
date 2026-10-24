@@ -32,7 +32,7 @@ let history = load(STORE + '.history', []);
 
 const state = {
   sim: null, quake: null, data: null, map: null,
-  t: -5, playing: false, speed: 1, lastFrame: 0, lastMapUpdate: 0, lastSide: 0,
+  t: -5, playing: false, speed: 1, lastFrame: 0, lastMapUpdate: 0, lastSide: 0, lastWave: 0,
   pending: null, activeId: null, view: 'realtime', markers: true,
   rt: null, // Float32Array of real-time intensity per station
   warned: false, lastEewKey: '', shakeK: 0, loop: 0, tsunamiShownAt: -Infinity,
@@ -382,6 +382,7 @@ function clock(t) {
 
 function render(force) {
   const now = performance.now();
+  renderWaves(now, force);
   const mapEvery = P.lowpower ? 250 : 100;
   if (force || now - state.lastMapUpdate >= mapEvery) {
     state.lastMapUpdate = now;
@@ -393,6 +394,19 @@ function render(force) {
     renderCards();
     renderTimeline();
   }
+}
+
+// The P and S rings move every frame (30 fps in power-saver mode), independently of the
+// slower map refresh, so they expand smoothly.
+function renderWaves(now, force) {
+  if (!state.quake || state.view !== 'realtime') return;
+  if (!force && P.lowpower && now - state.lastWave < 33) return;
+  state.lastWave = now;
+  const q = state.quake;
+  const t = state.t;
+  const pR = t > 0 ? surfaceRadius(t, q.depth, VP) : 0;
+  const sR = t > 0 ? surfaceRadius(t, q.depth, VS) : 0;
+  state.map.setWaves(q, pR < 2500 ? pR : 0, sR < 2500 ? sR : 0);
 }
 
 function renderTimeline() {
@@ -479,9 +493,6 @@ function renderMap() {
     for (let i = 0; i < n; i++) rt[i] = sim.realtime(i, t);
     m.setStations(rt);
     checkShaking();
-    const pR = t > 0 ? surfaceRadius(t, q.depth, VP) : 0;
-    const sR = t > 0 ? surfaceRadius(t, q.depth, VS) : 0;
-    m.setWaves(q, pR < 2500 ? pR : 0, sR < 2500 ? sR : 0);
     m.setAreas(new Map(), eew ? eew.forecast : new Map(), eew && eew.isWarning ? eew.warnAreas : new Set());
   } else {
     // Info view, and the tsunami view underneath its coastlines (dimmed by the map), show
