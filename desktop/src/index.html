@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src blob:; child-src blob:; connect-src 'self' file: data: blob:">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src blob:; child-src blob:; connect-src 'self' file: data: blob: https://synthesis-service.scratch.mit.edu">
   <title>Quake Simulator</title>
   <link rel="stylesheet" href="../node_modules/maplibre-gl/dist/maplibre-gl.css">
   <link rel="stylesheet" href="style.css">
@@ -87,7 +87,7 @@
           <span>Volume <b id="vol-val">70%</b></span>
           <input type="range" id="volume" min="0" max="100" step="1" value="70">
         </label>
-        <label class="check"><input type="checkbox" id="speech"> Spoken announcements (English)</label>
+        <label class="check"><input type="checkbox" id="speech"> Spoken announcements (English, needs internet)</label>
         <label class="check"><input type="checkbox" id="autoswitch" checked> Switch views automatically on alerts</label>
         <label class="check"><input type="checkbox" id="follow" checked> Zoom to the epicenter on start</label>
         <label class="check"><input type="checkbox" id="lowpower"> Power saver (lower frame rate)</label>

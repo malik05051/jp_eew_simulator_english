@@ -27,7 +27,9 @@ const $ = (id) => document.getElementById(id);
 const STORE = 'quakesim.v1';
 
 const prefs = load(STORE + '.prefs', {});
-const P = { volume: 0.7, speech: false, autoswitch: true, follow: true, lowpower: false, ...prefs };
+const P = { volume: 0.7, speech: true, autoswitch: true, follow: true, lowpower: false, ...prefs };
+// Speech used to be off by default; switch it back on once for settings saved back then.
+if (!P.speechV2) { P.speech = true; P.speechV2 = true; }
 let history = load(STORE + '.history', []);
 
 const state = {
@@ -396,11 +398,11 @@ function render(force) {
   }
 }
 
-// The P and S rings move every frame (30 fps in power-saver mode), independently of the
-// slower map refresh, so they expand smoothly.
+// The P and S rings move at up to 60 fps (30 in power-saver mode), independently of the
+// slower map refresh, so they expand smoothly without redrawing at high-refresh-rate speeds.
 function renderWaves(now, force) {
   if (!state.quake || state.view !== 'realtime') return;
-  if (!force && P.lowpower && now - state.lastWave < 33) return;
+  if (!force && now - state.lastWave < (P.lowpower ? 33 : 16)) return;
   state.lastWave = now;
   const q = state.quake;
   const t = state.t;
@@ -487,7 +489,7 @@ function renderMap() {
   const t = state.t;
   const q = state.quake;
   const { eew, info, tsunami } = currentReports(t);
-  m.setBlink(state.view === 'tsunami' && !!tsunami && (tsunami.level === 'major' || tsunami.level === 'warning'));
+  m.setBlink(state.view === 'tsunami' && !!tsunami && tsunami.areas.size > 0);
 
   if (state.view === 'realtime') {
     for (let i = 0; i < n; i++) rt[i] = sim.realtime(i, t);

@@ -18,8 +18,9 @@ const classFill = (prop) => {
   return m;
 };
 
-// Real-time (Kyoshin monitor) colour ramp as a MapLibre expression on the 'i' property.
-const RT_RAMP = ['interpolate', ['linear'], ['get', 'i'],
+// Real-time (Kyoshin monitor) colour ramp on the station's feature-state 'i'. Colours change
+// through feature-state, so the station source never has to be re-tiled while shaking.
+const RT_RAMP = ['interpolate', ['linear'], ['coalesce', ['feature-state', 'i'], -3],
   -3, 'rgb(0,0,205)', -2, 'rgb(0,70,255)', -1, 'rgb(0,170,255)', 0, 'rgb(0,220,140)',
   1, 'rgb(120,235,0)', 2, 'rgb(235,240,0)', 3, 'rgb(255,180,0)', 4, 'rgb(255,100,0)',
   5, 'rgb(245,20,0)', 6, 'rgb(190,0,40)', 7, 'rgb(150,0,120)'];
@@ -63,11 +64,14 @@ export class QuakeMap {
     this.stationsGeo = {
       type: 'FeatureCollection',
       features: d.stations.map((s, idx) => ({
-        type: 'Feature', geometry: { type: 'Point', coordinates: [s[1], s[0]] },
-        properties: { i: -3, ic: '', k: 0, sea: !!s[4], idx },
+        type: 'Feature', id: idx, geometry: { type: 'Point', coordinates: [s[1], s[0]] },
+        properties: { sea: !!s[4] },
       })),
     };
+    this.stLevel = new Float32Array(d.stations.length).fill(NaN); // last value sent per station
+    this.stClass = new Int8Array(d.stations.length);
     m.addSource('stations', { type: 'geojson', data: this.stationsGeo });
+    m.addSource('stations-rt', { type: 'geojson', data: empty() });
     m.addSource('obs', { type: 'geojson', data: empty() });
     m.addSource('waves', { type: 'geojson', data: empty() });
 
@@ -123,7 +127,7 @@ export class QuakeMap {
     });
     // live numbered circles for stations that are shaking (realtime view)
     m.addLayer({
-      id: 'stations-rt', type: 'symbol', source: 'stations', filter: ['!=', ['get', 'ic'], ''],
+      id: 'stations-rt', type: 'symbol', source: 'stations-rt',
       layout: {
         'icon-image': ['get', 'ic'], 'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.42, 9, 0.75],
         'symbol-sort-key': ['-', 0, ['get', 'k']], 'icon-allow-overlap': false, 'icon-padding': 0,
@@ -187,21 +191,29 @@ export class QuakeMap {
     m.setPaintProperty('sub-fill', 'fill-opacity', view === 'tsunami' ? 0.35 : 1);
   }
 
-  // intensities: Float32Array of real-time intensity per station (quantised before upload)
+  // intensities: Float32Array of real-time intensity per station. Colours go out as
+  // feature-state (only for stations whose value changed); the small source of numbered
+  // circles is rebuilt only when some station's intensity class changes.
   setStations(intensities) {
+    const m = this.map;
+    if (!m.getSource('stations')) return;
     const f = this.stationsGeo.features;
-    let changed = false;
+    let classChanged = false;
     for (let i = 0; i < f.length; i++) {
       const v = Math.round(intensities[i] * 10) / 10;
-      const p = f[i].properties;
-      if (p.i === v) continue;
-      p.i = v;
-      const k = p.sea ? -1 : classIndex(v);
-      p.k = k;
-      p.ic = k >= 1 ? `ci${k}` : '';
-      changed = true;
+      if (this.stLevel[i] === v) continue;
+      this.stLevel[i] = v;
+      m.setFeatureState({ source: 'stations', id: i }, { i: v });
+      const k = f[i].properties.sea ? 0 : Math.max(0, classIndex(v));
+      if (k !== this.stClass[i]) { this.stClass[i] = k; classChanged = true; }
     }
-    if (changed) this.map.getSource('stations')?.setData(this.stationsGeo);
+    if (!classChanged) return;
+    const icons = [];
+    for (let i = 0; i < f.length; i++) {
+      const k = this.stClass[i];
+      if (k >= 1) icons.push({ type: 'Feature', geometry: f[i].geometry, properties: { ic: `ci${k}`, k } });
+    }
+    m.getSource('stations-rt').setData({ type: 'FeatureCollection', features: icons });
   }
 
   // Station squares for the info view: [{lon, lat, k}]
@@ -244,8 +256,8 @@ export class QuakeMap {
     }
   }
 
-  // Warning and major-warning coasts blink (about once a second) while they are shown.
-  // The timer only runs while such a coast is on screen and the window is visible.
+  // While a tsunami bulletin is in effect every coloured coast blinks (about once a second).
+  // The timer only runs while the tsunami view is shown and the window is visible.
   setBlink(on) {
     if (on === !!this.blinkTimer) return;
     const m = this.map;
@@ -259,8 +271,7 @@ export class QuakeMap {
     this.blinkTimer = setInterval(() => {
       if (document.hidden) return;
       lit = !lit;
-      m.setPaintProperty('tsu-line', 'line-opacity', lit ? 1
-        : ['match', ['coalesce', ['feature-state', 'lvl'], ''], ['major', 'warning'], 0.12, 1]);
+      m.setPaintProperty('tsu-line', 'line-opacity', lit ? 1 : 0.12);
     }, 550);
   }
 
