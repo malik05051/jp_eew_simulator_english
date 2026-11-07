@@ -46,6 +46,7 @@ const BUILTIN = {
   final: 'eew-final.mp3', cancel: 'eew-cancel.wav',
   flash: 'info-flash.mp3', hypocenter: 'info-hypocenter.mp3', detail: 'info-detail.mp3', other: 'info-other.mp3',
   tsunamiForecast: 'tsa01.mp3', tsunamiAdvisory: 'tsa02.mp3', tsunamiWarning: 'tsa03.mp3', tsunamiMajor: 'tsa04.mp3',
+  tsunamiObs: 'tsa12.wav',
   shake1: 'newshi0.wav', shake2: 'newshi1.wav', shake3: 'newshi2.wav', shake4: 'newshi3.wav',
   shake5: 'newshi4.wav', shake6: 'newshi5.wav', shake7: 'newshi6.wav',
 };
@@ -63,6 +64,7 @@ export const SOUND_SLOTS = [
   ['tsunamiWarning', 'Tsunami warning'],
   ['tsunamiAdvisory', 'Tsunami advisory'],
   ['tsunamiForecast', 'Tsunami forecast'],
+  ['tsunamiObs', 'Tsunami observation'],
 ];
 
 const builtin = new Map(); // slot -> AudioBuffer (decoded lazily)

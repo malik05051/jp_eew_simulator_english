@@ -1,6 +1,7 @@
 // App controller: loads data, runs the playback clock and renders map + sidebar from the simulation state.
 import { Simulation, VP, VS, surfaceRadius } from '../sim/engine.js';
 import { EpicenterLookup } from '../sim/epicenter.js';
+import { DepthGrid } from '../sim/tsunami.js';
 import { CLASSES, CLASS_LABEL, classIndex } from '../sim/intensity.js';
 import { QuakeMap } from './map.js';
 import {
@@ -13,12 +14,12 @@ import {
 } from './audio.js';
 
 const PRESETS = [
-  { id: 'tohoku', name: '2011 Tohoku (M9.0, off Sanriku)', lat: 38.10, lon: 142.86, depth: 24, mag: 9.0 },
-  { id: 'noto', name: '2024 Noto Peninsula (M7.6)', lat: 37.50, lon: 137.27, depth: 16, mag: 7.6 },
-  { id: 'kumamoto', name: '2016 Kumamoto mainshock (M7.3)', lat: 32.75, lon: 130.76, depth: 12, mag: 7.3 },
-  { id: 'hanshin', name: '1995 Great Hanshin (M7.3)', lat: 34.60, lon: 135.04, depth: 16, mag: 7.3 },
-  { id: 'iburi', name: '2018 Hokkaido Iburi-East (M6.7)', lat: 42.69, lon: 142.01, depth: 37, mag: 6.7 },
-  { id: 'nankai', name: 'Nankai Trough scenario (M8.7)', lat: 33.00, lon: 135.60, depth: 20, mag: 8.7 },
+  { id: 'tohoku', name: '2011 Tohoku (M9.0, off Sanriku)', lat: 38.10, lon: 142.86, depth: 24, mag: 9.0, strike: 193, dip: 14, length: 450 },
+  { id: 'noto', name: '2024 Noto Peninsula (M7.6)', lat: 37.50, lon: 137.27, depth: 16, mag: 7.6, mw: 7.5, strike: 55, dip: 45 },
+  { id: 'kumamoto', name: '2016 Kumamoto mainshock (M7.3)', lat: 32.75, lon: 130.76, depth: 12, mag: 7.3, mw: 7.0, strike: 226, dip: 70 },
+  { id: 'hanshin', name: '1995 Great Hanshin (M7.3)', lat: 34.60, lon: 135.04, depth: 16, mag: 7.3, mw: 6.9, strike: 53, dip: 85 },
+  { id: 'iburi', name: '2018 Hokkaido Iburi-East (M6.7)', lat: 42.69, lon: 142.01, depth: 37, mag: 6.7, mw: 6.6, strike: 350, dip: 75 },
+  { id: 'nankai', name: 'Nankai Trough scenario (M8.7)', lat: 33.00, lon: 135.60, depth: 20, mag: 8.7, strike: 250, dip: 12 },
   { id: 'tokyo', name: 'Tokyo inland scenario (M7.3)', lat: 35.70, lon: 139.80, depth: 50, mag: 7.3 },
   { id: 'deep', name: 'Deep quake off Torishima (M6.8, 400 km)', lat: 30.50, lon: 140.40, depth: 400, mag: 6.8 },
 ];
@@ -47,10 +48,11 @@ async function loadJson(name) {
 }
 
 async function init() {
-  const [stations, subregions, prefectures, tsunami, land, epicenters] = await Promise.all(
-    ['stations.json', 'subregions.json', 'prefectures.json', 'tsunami.json', 'land.json', 'epicenters.json'].map(loadJson));
+  const [stations, subregions, prefectures, tsunami, land, epicenters, depth] = await Promise.all(
+    ['stations.json', 'subregions.json', 'prefectures.json', 'tsunami.json', 'land.json', 'epicenters.json', 'depth.json'].map(loadJson));
   const data = { stations: stations.stations, subregions, prefectures, tsunami, land };
   data.epicenters = new EpicenterLookup(epicenters);
+  data.depth = new DepthGrid(depth); // ocean depths for the tsunami model
   data.subByCode = new Map(subregions.features.map((f) => [f.properties.code, f]));
   data.tsuByCode = new Map(tsunami.features.map((f) => [f.properties.code, f]));
   state.data = data;
@@ -83,6 +85,18 @@ function wireUi() {
   });
   $('mag').addEventListener('input', () => { sel.value = ''; syncSetupLabels(); });
   $('depth').addEventListener('input', () => { sel.value = ''; syncSetupLabels(); });
+  // exact values: the sliders are coarse over M up to 50 and depths down to 1000 km
+  for (const [num, range] of [['mag-num', 'mag'], ['depth-num', 'depth']]) {
+    $(num).addEventListener('input', () => {
+      const v = parseFloat($(num).value.replace(',', '.'));
+      if (!Number.isFinite(v)) return;
+      $(range).value = Math.min(+$(range).max, Math.max(+$(range).min, v));
+      sel.value = '';
+    });
+    $(num).addEventListener('change', () => { $(num).blur(); syncSetupLabels(); });
+    // typing digits must not trigger the app's keyboard shortcuts; Enter confirms
+    $(num).addEventListener('keydown', (e) => { if (e.key === 'Enter') $(num).blur(); e.stopPropagation(); });
+  }
   $('start').addEventListener('click', startPending);
   $('setup-close').addEventListener('click', closeSetup);
   $('new-quake').addEventListener('click', () => { resetSim(); openSetup(); });
@@ -198,9 +212,8 @@ function renderSoundSlots() {
 }
 
 function syncSetupLabels() {
-  $('mag-val').textContent = parseFloat($('mag').value).toFixed(1);
-  const d = parseInt($('depth').value, 10);
-  $('depth-val').textContent = d === 0 ? 'Very shallow' : `${d} km`;
+  if (document.activeElement !== $('mag-num')) $('mag-num').value = parseFloat($('mag').value).toFixed(1);
+  if (document.activeElement !== $('depth-num')) $('depth-num').value = parseInt($('depth').value, 10);
 }
 
 function setPending(lat, lon) {
@@ -250,6 +263,9 @@ function startPending() {
     depth: parseInt($('depth').value, 10), mag: parseFloat($('mag').value),
     origin: Date.now() + 5000,
   };
+  // a preset left unchanged keeps its moment magnitude and fault orientation
+  const p = PRESETS.find((x) => x.id === $('preset').value);
+  if (p) Object.assign(q, { mw: p.mw, strike: p.strike, dip: p.dip, length: p.length });
   closeSetup();
   preload();
   startQuake(q, { autoplay: true });
@@ -299,7 +315,7 @@ function addHistory() {
   const q = state.quake;
   history.unshift({
     id: state.activeId, origin: q.origin, lat: q.lat, lon: q.lon, depth: q.depth, mag: q.mag,
-    seed: q.seed, name: q.place.name, maxClass: q.maxClass,
+    mw: q.mw, strike: q.strike, dip: q.dip, length: q.length, seed: q.seed, name: q.place.name, maxClass: q.maxClass,
   });
   history = history.slice(0, 50);
   save(STORE + '.history', history);
@@ -430,7 +446,7 @@ function renderClock() {
 function currentReports(t) {
   const sim = state.sim;
   const eew = sim.eewAt(t);
-  const infos = sim.reports.filter((r) => r.at <= t && r.type !== 'tsunami');
+  const infos = sim.reports.filter((r) => r.at <= t && r.type !== 'tsunami' && r.type !== 'tsunamiObs');
   const info = infos.at(-1) || null;
   const tsunami = sim.reports.find((r) => r.type === 'tsunami' && r.at <= t) ? sim.tsunami : null;
   const eewActive = eew && !(eew.isFinal && t - eew.at > 60);
@@ -484,12 +500,15 @@ function renderMap() {
     m.setTsunami(new Map());
     m.setObserved([]);
     m.setBlink(false);
+    m.setWaveField(null);
     return;
   }
   const t = state.t;
   const q = state.quake;
   const { eew, info, tsunami } = currentReports(t);
   m.setBlink(state.view === 'tsunami' && !!tsunami && tsunami.areas.size > 0);
+  // the wave itself is shown from the start, even before any bulletin is issued
+  m.setWaveField(state.view === 'tsunami' ? sim.tsunami.field : null, state.data.depth, t);
 
   if (state.view === 'realtime') {
     for (let i = 0; i < n; i++) rt[i] = sim.realtime(i, t);
@@ -590,8 +609,16 @@ function announce(ev) {
     play({ major: 'tsunamiMajor', warning: 'tsunamiWarning', advisory: 'tsunamiAdvisory', forecast: 'tsunamiForecast' }[lvl]);
     const names = [...ts.areas].filter(([, a]) => a.level === lvl).map(([c]) => state.data.tsuByCode.get(c)?.properties.en).filter(Boolean);
     const title = { major: 'Major tsunami warning', warning: 'Tsunami warning', advisory: 'Tsunami advisory', forecast: 'Tsunami forecast' }[lvl];
-    say(`${title} for ${names.slice(0, 5).join(', ')}.${lvl === 'major' || lvl === 'warning' ? ' Evacuate immediately.' : ''}`, { interrupt: true });
+    const up = lvl === 'forecast' ? '' : ` Expected tsunami height up to ${spokenMetres(ts.maxHeight)}.`;
+    say(`${title} for ${names.slice(0, 5).join(', ')}.${up}${lvl === 'major' || lvl === 'warning' ? ' Evacuate immediately.' : ''}`, { interrupt: true });
     toast(title);
+  } else if (ev.kind === 'tsunamiObs') {
+    play('tsunamiObs', { exclusive: false });
+    const obs = r.codes.map((c) => ({ c, o: state.sim.tsunami.obs.find((x) => x.code === c) })).sort((a, b) => b.o.height - a.o.height);
+    const top = obs[0];
+    const where = state.data.tsuByCode.get(top.c)?.properties.en ?? top.c;
+    say(`Tsunami observation. ${spokenMetres(top.o.height)} observed in ${where}.`);
+    toast(`Tsunami observed: ${where} ${top.o.height.toFixed(1)} m`);
   } else if (ev.kind === 'lpgm') {
     play('other');
   }
@@ -606,6 +633,10 @@ function prefecturesOf(codes, sub) {
     if (!out.includes(pref)) out.push(pref);
   }
   return out;
+}
+
+function spokenMetres(h) {
+  return h >= 10 ? `${Math.round(h)} meters` : h >= 1 ? `${h.toFixed(1)} meters` : `${Math.round(h * 100)} centimeters`;
 }
 
 function label(cls) { return cls ? CLASS_LABEL[cls] : 'unknown'; }

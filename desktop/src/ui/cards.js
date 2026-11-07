@@ -153,20 +153,27 @@ export function regionListCard(regions, ctx) {
 const TSU_TITLE = { major: 'Major Tsunami Warning', warning: 'Tsunami Warning', advisory: 'Tsunami Advisory', forecast: 'Tsunami Forecast' };
 const TSU_SHORT = { major: 'Major tsunami warning', warning: 'Tsunami warning', advisory: 'Tsunami advisory', forecast: 'Tsunami forecast' };
 
+export function metres(h) {
+  return h >= 10 ? `${h.toFixed(0)} m` : h >= 1 ? `${h.toFixed(1)} m` : `${h.toFixed(2)} m`;
+}
+
 export function tsunamiCard(ts, ctx, t) {
-  const { q } = ctx;
+  const { q, sim } = ctx;
   const origin = ctx.clock(0);
   const levels = ['major', 'warning', 'advisory', 'forecast'];
   const groups = levels.map((lvl) => {
     const list = [...ts.areas.entries()].filter(([, a]) => a.level === lvl);
     if (!list.length) return '';
     const height = lvl === 'forecast' ? '' : list.reduce((best, [, a]) => (rankH(a.height) > rankH(best) ? a.height : best), '');
-    const items = list.sort((a, b) => a[1].arrivalMin - b[1].arrivalMin).map(([code, a]) => {
+    const items = list.sort((a, b) => a[1].arrivalS - b[1].arrivalS).map(([code, a]) => {
       const f = ctx.tsuByCode.get(code);
-      const arrive = t >= a.arrivalMin * 60
-        ? '<span class="pill-y">Arriving now (estimated)</span>'
-        : `<span class="pill-d">Expected ${fmtTime(ctx.clock(a.arrivalMin * 60), false)}</span>`;
-      return `<div class="tsu-item"><div>${esc(f ? f.properties.en : code)}</div>${lvl === 'forecast' ? '' : arrive}</div>`;
+      const obs = sim.tsunamiObservedAt(code, t);
+      let status;
+      if (obs?.peak != null) status = `<span class="pill-o">Observed max ${metres(obs.peak)} · ${fmtTime(ctx.clock(obs.peakAt), false)}</span>`;
+      else if (obs) status = `<span class="pill-y">Observing · first wave ${fmtTime(ctx.clock(obs.first), false)}</span>`;
+      else if (t >= a.arrivalS) status = '<span class="pill-y">Arriving now (estimated)</span>';
+      else status = `<span class="pill-d">Expected ${fmtTime(ctx.clock(a.arrivalS), false)}</span>`;
+      return `<div class="tsu-item"><div class="tsu-name"><span>${esc(f ? f.properties.en : code)}</span><b>${metres(a.est)}</b></div>${status}</div>`;
     }).join('');
     return `
       <div class="tsu-group" style="--c:${TSUNAMI_COLOR[lvl]}">
@@ -181,6 +188,8 @@ export function tsunamiCard(ts, ctx, t) {
       <div class="sub">${fmtShort(origin)} or so</div>
       <div class="place">${esc(q.place.name)}</div>
       ${magDepth(q.mag, q.depth)}
+      <div class="mrow"><span>Highest estimated wave</span><b>${metres(ts.maxHeight)}</b><i style="background:${TSUNAMI_COLOR[ts.level]}"></i></div>
+      <div class="sub fine">Estimated heights at the coast (tide-gauge level, not run-up).</div>
       ${groups}
     </div>
   </div>`;
@@ -229,7 +238,9 @@ export function historyItem(h, active) {
 export function legendHtml(view) {
   if (view === 'tsunami') {
     return `<div class="lg-title">Coastline colours</div>` + ['major', 'warning', 'advisory', 'forecast'].map((l) =>
-      `<div class="lg-row"><i style="background:${TSUNAMI_COLOR[l]}"></i>${TSU_SHORT[l]}</div>`).join('');
+      `<div class="lg-row"><i style="background:${TSUNAMI_COLOR[l]}"></i>${TSU_SHORT[l]}</div>`).join('')
+      + '<div class="lg-title" style="margin-top:6px">Wave height at sea</div><div class="lg-grad"></div>'
+      + '<div class="lg-ticks"><span>0.1 m</span><span>1 m</span><span>10 m+</span></div>';
   }
   const title = view === 'realtime' ? 'Map colours (forecast)' : 'Map colours';
   return `<div class="lg-title">${title}</div>` + CLASSES.slice(1).reverse().map((c) =>

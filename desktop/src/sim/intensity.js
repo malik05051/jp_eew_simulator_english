@@ -2,6 +2,7 @@
 //
 // Peak ground velocity on Vs=600 m/s bedrock: Si & Midorikawa (1999).
 // Instrumental intensity from PGV: Fujimoto & Midorikawa (2005).
+// Finite-fault geometry: ground.js.
 
 export const CLASSES = ['0', '1', '2', '3', '4', '5-', '5+', '6-', '6+', '7'];
 const LOWER_BOUNDS = [0.5, 1.5, 2.5, 3.5, 4.5, 5.0, 5.5, 6.0, 6.5];
@@ -33,9 +34,9 @@ export function classOf(i) {
   return k < 0 ? null : CLASSES[k];
 }
 
-// Rough rupture length for a magnitude (km).
+// Rough rupture length for a magnitude (km), as used by the EEW's point-source estimate.
 export function faultLengthKm(m) {
-  return 10 ** (0.5 * m - 1.85);
+  return 10 ** (0.5 * Math.min(m, 9.6) - 1.85);
 }
 
 // Source type from depth and whether the epicenter is offshore.
@@ -47,21 +48,85 @@ export function sourceType(depthKm, offshore) {
 
 const TYPE_TERM = { crustal: 0, interplate: -0.02, intraslab: 0.12 };
 
-// PGV (cm/s) on engineering bedrock.
-export function pgvBedrock(m, depthKm, epiKm, type = 'crustal') {
-  const mw = Math.min(m, 8.3);
-  const half = faultLengthKm(m) * 0.35;
-  const near = Math.max(0, epiKm - half);
-  const x = Math.max(3, Math.hypot(near, Math.min(depthKm, 200)));
-  const d = Math.min(depthKm, 150);
-  const logv = 0.58 * mw + 0.0038 * d + TYPE_TERM[type] - 1.29 -
-    Math.log10(x + 0.0028 * 10 ** (0.5 * mw)) - 0.002 * x;
+// PGV (cm/s) on engineering bedrock (Vs ≈ 600 m/s), Si & Midorikawa (1999):
+//   log PGV = 0.58 Mw + 0.0038 D + d − 1.29 − log(X + 0.0028·10^(0.5 Mw)) − 0.002 X
+// X = shortest distance to the fault (km), D = fault depth (km), d = source-type term.
+// Mw saturates at 8.3 as in the J-SHIS hazard maps; D is held within the data range.
+// Above Mw 9.6 (larger than any recorded quake) shaking keeps growing so that fictional
+// magnitudes up to 50 behave as expected.
+// `q` scales the anelastic term: below 1 for paths running up a cold, high-Q slab and above 1
+// for paths crossing the hot mantle wedge (see slabPathFactor).
+export function pgvSM99(mw, faultDepthKm, xKm, type = 'crustal', q = 1) {
+  const m = Math.min(mw, 8.3);
+  const d = Math.min(Math.max(faultDepthKm, 0), 120);
+  const x = Math.max(0.5, xKm);
+  const logv = 0.58 * m + 0.0038 * d + TYPE_TERM[type] - 1.29 -
+    Math.log10(x + 0.0028 * 10 ** (0.5 * m)) - 0.002 * q * x + 0.3 * Math.max(0, mw - 9.6);
   return 10 ** logv;
+}
+
+// The station site factors (ARV) are relative to Vs = 400 m/s bedrock; SM99 gives PGV on
+// Vs = 600 m/s, which is 1.31 times weaker (Midorikawa et al. 1994: log ARV = 1.83 − 0.66 log Vs).
+export const VS600_TO_VS400 = 1.31;
+
+// Volcanic front (lat, lon), north to south: stations on its ocean side sit above the
+// subducting slab. Kyushu has its own front for the Philippine Sea slab.
+const FRONT_PACIFIC = [
+  [45.5, 147.5], [43.4, 144.4], [42.7, 141.3], [41.3, 140.9], [40.0, 140.9], [38.7, 140.7], [37.6, 140.1],
+  [36.6, 139.5], [35.4, 138.7], [34.7, 139.4], [33.1, 139.8], [30.5, 140.3], [27.0, 140.9], [24.0, 141.3],
+];
+const FRONT_KYUSHU = [[33.6, 131.6], [33.1, 131.2], [31.6, 130.7], [29.6, 129.7], [28.0, 129.2]];
+
+function frontLon(front, lat) {
+  if (lat >= front[0][0]) return front[0][1];
+  for (let k = 1; k < front.length; k++) {
+    const [la1, lo1] = front[k];
+    if (lat >= la1) {
+      const [la0, lo0] = front[k - 1];
+      return lo1 + ((lat - la1) / (la0 - la1)) * (lo0 - lo1);
+    }
+  }
+  return front[front.length - 1][1];
+}
+
+// Which slab a site sits above (forearc side of the volcanic front): 'pac' (Pacific plate),
+// 'phs' (Philippine Sea plate) or '' for the back-arc.
+export function forearcOf(lat, lon) {
+  if (lon < 132.2 && lat < 34) return lon > frontLon(FRONT_KYUSHU, lat) ? 'phs' : '';
+  if (lon < 137.6 && lat < 35) return lat < 34.3 ? 'phs' : ''; // Shikoku and Kii
+  if (lon < 137.6) return '';
+  return lon > frontLon(FRONT_PACIFIC, lat) ? 'pac' : '';
+}
+
+// The slab a quake belongs to: the Philippine Sea plate under south-west Japan, else the Pacific.
+export function slabOf(lat, lon) {
+  return lon < 136.5 && lat < 35.5 ? 'phs' : 'pac';
+}
+
+// Path attenuation relative to SM99's average, from where the station sits:
+// - deep quakes (異常震域, abnormal intensity distribution): waves travelling up the cold
+//   slab lose little energy, so the Pacific side shakes far from the epicentre while the
+//   land right above the quake barely feels it;
+// - interplate quakes: paths to the back-arc cross the hot mantle wedge and fade faster.
+// Returns the scale for pgvSM99's anelastic term.
+export function slabPathFactor(type, depthKm, forearc) {
+  if (type === 'interplate') return forearc ? 1 : 1.6;
+  if (type !== 'intraslab') return 1;
+  const g = Math.max(0, Math.min(1, (depthKm - 80) / 200));
+  return forearc ? 1 - 0.7 * g : 1 + 1.0 * g;
+}
+
+// Point-source version (EEW forecasts): distance to the fault approximated from the
+// hypocentral distance minus half the rupture length.
+export function pgvBedrock(m, depthKm, epiKm, type = 'crustal') {
+  const half = faultLengthKm(m) * 0.5;
+  const x = Math.max(Math.min(depthKm, 300), Math.hypot(epiKm, depthKm) - half);
+  return pgvSM99(m, depthKm, x, type);
 }
 
 export function intensityFromPgv(pgv) {
   if (pgv <= 0) return -3;
-  const l = Math.log10(pgv);
+  const l = Math.min(Math.log10(pgv), 4); // the quadratic turns over beyond ~10^6 cm/s
   const i = 2.002 + 2.603 * l - 0.213 * l * l;
   return Math.max(-3, Math.min(7, i));
 }

@@ -1,7 +1,7 @@
 {
   "name": "quake-sim-desktop",
   "productName": "Quake Simulator",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Japan earthquake and Earthquake Early Warning simulator (desktop app)",
   "main": "main.js",
   "author": "malik05051",

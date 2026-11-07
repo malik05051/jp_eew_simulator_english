@@ -1,10 +1,12 @@
 // Earthquake simulation: wave arrivals, station shaking, EEW reports, JMA-style
 // information reports and tsunami bulletins. Everything is precomputed in start(),
 // so state(t) can be evaluated for any time (pause, speed changes and seeking are free).
-import { distanceKm, insideGeometry, distanceToLineKm } from './geo.js';
+import { distanceKm, insideGeometry } from './geo.js';
+import { propagate, coastalForecast, estimateStrike } from './tsunami.js';
+import { faultModel, faultDistance } from './ground.js';
 import {
   CLASSES, classIndex, classOf, predictIntensity, sourceType, longPeriodClass, faultLengthKm,
-  pgvBedrock, intensityFromPgv,
+  pgvSM99, intensityFromPgv, VS600_TO_VS400, forearcOf, slabOf, slabPathFactor,
 } from './intensity.js';
 
 export const VP = 6.2; // km/s
@@ -45,8 +47,10 @@ export class Simulation {
     this.stations = data.stations;
     this.subregions = data.subregions.features;
     this.tsunamiAreas = data.tsunami.features;
+    this.grid = data.depth ?? null; // DepthGrid for the tsunami model
     this.lookup = data.epicenters;
     this.regionByCode = new Map(this.subregions.map((f) => [f.properties.code, f]));
+    this.forearc = this.stations.map(([lat, lon]) => forearcOf(lat, lon));
     this.quake = null;
   }
 
@@ -60,6 +64,8 @@ export class Simulation {
   start(q) {
     const quake = {
       lat: q.lat, lon: q.lon, depth: q.depth, mag: q.mag,
+      // moment magnitude for the ground-motion model (presets give it; otherwise M is taken as Mw)
+      mw: q.mw ?? q.mag, strike: q.strike, dip: q.dip, length: q.length,
       origin: q.origin ?? Date.now(),
       seed: q.seed ?? Math.floor(Math.random() * 2 ** 31),
     };
@@ -70,7 +76,15 @@ export class Simulation {
     this.quake = quake;
 
     // ---- stations
-    const dur = Math.min(180, Math.max(4, 10 ** (0.5 * quake.mag - 2.0)));
+    // Finite rupture: oriented along the trench / depth contours unless the preset says otherwise.
+    const strike = quake.strike ?? (this.grid
+      ? estimateStrike(this.grid, quake.lat, quake.lon, quake.type === 'crustal' ? 150 : 80) / (Math.PI / 180)
+      : 30);
+    const slab = slabOf(quake.lat, quake.lon);
+    const fault = faultModel({ ...quake, mag: quake.mw }, quake.type, strike);
+    quake.fault = { L: fault.L, W: fault.W, strike: ((strike % 360) + 360) % 360, top: fault.top };
+
+    const dur = Math.min(180, Math.max(4, 10 ** (0.5 * Math.min(quake.mw, 9.6) - 2.0)));
     const n = this.stations.length;
     const st = {
       tP: new Float64Array(n), tS: new Float64Array(n), peak: new Float32Array(n),
@@ -78,11 +92,13 @@ export class Simulation {
     };
     for (let i = 0; i < n; i++) {
       const [lat, lon, , amp] = this.stations[i];
-      const epi = distanceKm(quake.lat, quake.lon, lat, lon);
+      const { rrup, epi } = faultDistance(fault, lat, lon);
       const hyp = Math.hypot(epi, quake.depth);
       st.tP[i] = hyp / VP;
       st.tS[i] = hyp / VS;
-      const pgv = pgvBedrock(quake.mag, quake.depth, epi, quake.type) * amp * 10 ** (0.16 * gauss(rand));
+      // within-event scatter of about a factor 1.4 (σ = 0.15 log units; site effects are in amp)
+      const q = slabPathFactor(quake.type, quake.depth, this.forearc[i] === slab);
+      const pgv = pgvSM99(quake.mw, fault.zc, rrup, quake.type, q) * VS600_TO_VS400 * amp * 10 ** (0.15 * gauss(rand));
       st.peak[i] = intensityFromPgv(pgv);
       st.dur[i] = dur + 0.04 * hyp;
       st.flicker[i] = rand() * 6.283;
@@ -212,41 +228,49 @@ export class Simulation {
   }
 
   // ---------------------------------------------------------------- tsunami
+  // Heights (m) and arrivals come from the tsunami model (src/sim/tsunami.js); bulletin levels
+  // follow JMA's height bands: major > 3 m, warning > 1 m, advisory > 0.2 m, forecast otherwise.
   computeTsunami(q, rand) {
-    const res = { level: 'none', areas: new Map(), at: 180 };
-    if (q.depth > 80) return res;
-    // A shallow quake right on the coast can still rupture into the sea (e.g. 2024 Noto),
-    // so coastal land epicenters get a reduced tsunami instead of none.
-    let landFactor = 1;
-    if (!q.offshore) {
-      const coast = Math.min(...this.tsunamiAreas.map((f) => distanceToLineKm(q.lat, q.lon, f.geometry)));
-      if (q.depth > 25 || coast > 15) return res;
-      landFactor = Math.exp(-coast / 8);
-    }
-    if (q.mag < 6.0) return res;
-    if (q.mag < 6.5) { res.level = 'slight'; return res; }
-    for (const f of this.tsunamiAreas) {
-      const d = Math.max(30, distanceToLineKm(q.lat, q.lon, f.geometry));
-      const h = 10 ** (q.mag - 5.55 - Math.log10(d) - 0.0015 * d) * landFactor * (0.8 + 0.4 * rand());
+    const res = { level: 'none', areas: new Map(), at: 180, maxHeight: 0, field: null, obs: [] };
+    const model = this.grid ? propagate(this.grid, { lat: q.lat, lon: q.lon, depth: q.depth, mag: q.mag, type: q.type }) : null;
+    if (!model) return res;
+    res.field = model;
+    let maxAll = 0;
+    for (const [code, v] of coastalForecast(this.grid, model, this.tsunamiAreas)) {
+      const h = v.height;
+      maxAll = Math.max(maxAll, h);
       let lvl = null;
       if (h > 3) lvl = 'major';
       else if (h > 1) lvl = 'warning';
       else if (h > 0.2) lvl = 'advisory';
       else if (h > 0.05) lvl = 'forecast';
-      if (lvl) res.areas.set(f.properties.code, { level: lvl, height: heightLabel(h), arrivalMin: Math.round(d / 2.6) });
+      if (!lvl) continue;
+      res.areas.set(code, { level: lvl, height: heightLabel(h), est: h, arrivalS: v.arrivalS, arrivalMin: Math.round(v.arrivalS / 60) });
+      res.maxHeight = Math.max(res.maxHeight, h);
+      // simulated tide-gauge record: first wave at the arrival time, highest wave 10-25 min
+      // later, measured within about ±25 % of the estimate (bays, resonance, timing)
+      if (h >= 0.1) {
+        res.obs.push({ code, firstAt: v.arrivalS, peakAt: v.arrivalS + 600 + 900 * rand(), height: h * (0.75 + 0.5 * rand()) });
+      }
     }
     const rank = { forecast: 1, advisory: 2, warning: 3, major: 4 };
     let top = 0;
     for (const a of res.areas.values()) top = Math.max(top, rank[a.level]);
-    res.level = ['slight', 'forecast', 'advisory', 'warning', 'major'][top];
+    res.level = top ? ['none', 'forecast', 'advisory', 'warning', 'major'][top] : maxAll >= 0.01 ? 'slight' : 'none';
     return res;
+  }
+
+  // Observed values known at time t for an area: { first (s), peak (m) | null }.
+  tsunamiObservedAt(code, t) {
+    const o = this.tsunami.obs.find((x) => x.code === code);
+    if (!o || t < o.firstAt) return null;
+    return { first: o.firstAt, peak: t >= o.peakAt ? o.height : null, peakAt: o.peakAt };
   }
 
   // ---------------------------------------------------------------- information reports
   scheduleReports(q) {
     const out = [];
     const finals = [...this.regionFinal.entries()];
-    if (!finals.length) return out;
     const tsunamiComment = tsunamiText(this.tsunami.level);
     const bulletin = this.tsunami.level !== 'none' && this.tsunami.level !== 'slight';
     let tFlash = null;
@@ -261,10 +285,27 @@ export class Simulation {
       out.push({ type: 'flash', at: tFlash });
       out.push({ type: 'hypocenter', at: tFlash + 60, tsunamiComment });
     }
-    const lastArrival = Math.max(...finals.map(([, v]) => v.t));
-    const tDetail = Math.max(150, (tFlash ?? 0) + 120, lastArrival + 30, bulletin ? this.tsunami.at + 30 : 0);
-    out.push({ type: 'detail', at: tDetail, tsunamiComment });
-    if (this.quake.mag >= 6.0) out.push({ type: 'lpgm', at: tDetail + 60 });
+    // earthquake information only when some land area felt the quake (far offshore quakes
+    // can still have a tsunami bulletin)
+    if (finals.length) {
+      const lastArrival = Math.max(...finals.map(([, v]) => v.t));
+      const tDetail = Math.max(150, (tFlash ?? 0) + 120, lastArrival + 30, bulletin ? this.tsunami.at + 30 : 0);
+      out.push({ type: 'detail', at: tDetail, tsunamiComment });
+      if (this.quake.mag >= 6.0) out.push({ type: 'lpgm', at: tDetail + 60 });
+    }
+    // Tsunami observation reports (like JMA's): every 5 minutes while new maxima are measured,
+    // for up to 3 hours after the earthquake.
+    if (bulletin) {
+      const peaks = this.tsunami.obs.filter((o) => o.peakAt <= 3 * 3600).sort((a, b) => a.peakAt - b.peakAt);
+      let batch = [];
+      let until = -1;
+      for (const o of peaks) {
+        if (o.peakAt > until && batch.length) { out.push({ type: 'tsunamiObs', at: Math.max(until, this.tsunami.at + 30), codes: batch }); batch = []; }
+        if (!batch.length) until = Math.ceil(o.peakAt / 300) * 300;
+        batch.push(o.code);
+      }
+      if (batch.length) out.push({ type: 'tsunamiObs', at: Math.max(until, this.tsunami.at + 30), codes: batch });
+    }
     return out.sort((a, b) => a.at - b.at);
   }
 
